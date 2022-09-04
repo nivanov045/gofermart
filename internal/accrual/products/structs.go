@@ -8,7 +8,7 @@ import (
 type RewardType int
 
 const (
-	RewardTypeUnknown = iota
+	RewardTypeUnknown RewardType = iota
 	RewardTypePercent
 	RewardTypePoints
 )
@@ -45,7 +45,7 @@ func (p *Product) UnmarshalJSON(data []byte) error {
 	}
 
 	if p.RewardType == RewardTypeUnknown {
-		return fmt.Errorf("unknown reward type '%s'", aliasValue.RewardType)
+		return fmt.Errorf("unknown reward type '%v'", aliasValue.RewardType)
 	}
 
 	return nil

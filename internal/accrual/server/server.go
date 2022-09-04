@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 
@@ -25,7 +24,7 @@ func (a *Server) Run(address string) error {
 	r := chi.NewRouter()
 
 	r.Route("/api/", func(r chi.Router) {
-		r.Get("/orders/{number}", a.getInfo)
+		r.Get("/orders/{number}", a.getOrderStatus)
 		r.Post("/orders", a.registerOrder)
 		r.Post("/goods", a.registerProduct)
 	})
@@ -33,13 +32,37 @@ func (a *Server) Run(address string) error {
 	return http.ListenAndServe(address, r)
 }
 
-func (a *Server) getInfo(w http.ResponseWriter, r *http.Request) {
-	number := chi.URLParam(r, "number")
-	fmt.Println(number)
+func (a *Server) getOrderStatus(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "number")
+
+	response, err := a.service.GetOrderStatus(r.Context(), id)
+	// TODO: Parse errors
+	if err != nil {
+		log.Error(err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/json")
+	w.Write(response)
 }
 
 func (a *Server) registerOrder(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Error(err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
 
+	err = a.service.RegisterOrder(r.Context(), body)
+	// TODO: Parse errors
+	if err != nil {
+		log.Error(err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
 }
 
 func (a *Server) registerProduct(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +81,4 @@ func (a *Server) registerProduct(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-
-	w.Header().Add("Content-Type", "application/json")
 }

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"database/sql"
+	"runtime"
+	"sync"
 
 	_ "github.com/jackc/pgx/v4/stdlib"
 
@@ -32,11 +34,23 @@ func main() {
 		log.Panic(err)
 	}
 
-	service := services.NewService(storage)
-	accrualServer := server.NewServer(service)
+	wg := sync.WaitGroup{}
+	service := services.NewService(storage, runtime.NumCPU())
+	wg.Add(1)
+	go func() {
+		service.Process(ctx)
+		wg.Done()
+	}()
 
-	err = accrualServer.Run(cfg.Address)
-	if err != nil {
-		log.Panic(err)
-	}
+	accrualServer := server.NewServer(service)
+	wg.Add(1)
+	go func() {
+		err = accrualServer.Run(cfg.Address)
+		if err != nil {
+			log.Panic(err)
+		}
+		wg.Done()
+	}()
+
+	wg.Wait()
 }
