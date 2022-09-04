@@ -12,10 +12,11 @@ import (
 type Authenticator interface {
 	Register([]byte) error
 	Login([]byte) error
+	CheckAuthentication([]byte) bool
 }
 
 type Service interface {
-	AddOrder([]byte) error
+	AddOrder([]byte) (bool, error)
 	GetOrders([]byte) ([]byte, error)
 	GetBalance([]byte) ([]byte, error)
 	MakeWithdraw([]byte) error
@@ -39,7 +40,6 @@ func (a *api) Run(address string) error {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Compress(5, "application/json", "text/html"))
 
 	r.Post("/api/user/register", a.registerHandler)
 	r.Post("/api/user/login", a.loginHandler)
@@ -58,16 +58,23 @@ func (a *api) registerHandler(w http.ResponseWriter, r *http.Request) {
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::registerHandler::warning: can't read response body with:", err)
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("{}"))
 		return
 	}
+
 	err = a.authenticator.Register(respBody)
 	if err != nil {
-		log.Println("api::registerHandler::warning: in register:", err)
-		w.WriteHeader(http.StatusNotFound)
+		if err.Error() == "wrong request" {
+			w.WriteHeader(http.StatusBadRequest)
+		} else if err.Error() == "login is already in use" {
+			w.WriteHeader(http.StatusConflict)
+		} else {
+			log.Println("api::registerHandler::error: unhandled:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	} else {
-		log.Println("api::registerHandler::info: registered")
+		log.Println("api::registerHandler::info: StatusOK")
 		w.WriteHeader(http.StatusOK)
 	}
 	w.Write([]byte("{}"))
@@ -80,16 +87,23 @@ func (a *api) loginHandler(w http.ResponseWriter, r *http.Request) {
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::loginHandler::warning: can't read response body with:", err)
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("{}"))
 		return
 	}
+
 	err = a.authenticator.Login(respBody)
 	if err != nil {
-		log.Println("api::loginHandler::warning: in login:", err)
-		w.WriteHeader(http.StatusNotFound)
+		if err.Error() == "wrong request" {
+			w.WriteHeader(http.StatusBadRequest)
+		} else if err.Error() == "wrong login or password" {
+			w.WriteHeader(http.StatusUnauthorized)
+		} else {
+			log.Println("api::loginHandler::error: unhandled:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	} else {
-		log.Println("api::loginHandler::info: logged in")
+		log.Println("api::loginHandler::info: StatusOK")
 		w.WriteHeader(http.StatusOK)
 	}
 	w.Write([]byte("{}"))
@@ -102,17 +116,37 @@ func (a *api) addOrderHandler(w http.ResponseWriter, r *http.Request) {
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::addOrderHandler::warning: can't read response body with:", err)
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("{}"))
 		return
 	}
-	err = a.service.AddOrder(respBody)
+
+	isAuthenticated := a.authenticator.CheckAuthentication(respBody)
+	if !isAuthenticated {
+		log.Println("api::addOrderHandler::warning: not authenticated user")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("{}"))
+		return
+	}
+
+	isOrderAlreadyUploaded, err := a.service.AddOrder(respBody)
 	if err != nil {
-		log.Println("api::addOrderHandler::warning: in order adding:", err)
-		w.WriteHeader(http.StatusNotFound)
+		if err.Error() == "wrong request" {
+			w.WriteHeader(http.StatusBadRequest)
+		} else if err.Error() == "order was uploaded by another user" {
+			w.WriteHeader(http.StatusConflict)
+		} else if err.Error() == "wrong format of order" {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+		} else {
+			log.Println("api::addOrderHandler::error: unhandled:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	} else {
-		log.Println("api::addOrderHandler::info: order was added")
-		w.WriteHeader(http.StatusOK)
+		if isOrderAlreadyUploaded {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusAccepted)
+		}
 	}
 	w.Write([]byte("{}"))
 }
@@ -124,18 +158,32 @@ func (a *api) getOrdersHandler(w http.ResponseWriter, r *http.Request) {
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::getOrdersHandler::warning: can't read response body with:", err)
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("{}"))
 		return
 	}
+
+	isAuthenticated := a.authenticator.CheckAuthentication(respBody)
+	if !isAuthenticated {
+		log.Println("api::getOrdersHandler::warning: not authenticated user")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("{}"))
+		return
+	}
+
 	res, err := a.service.GetOrders(respBody)
 	if err != nil {
-		log.Println("api::getOrdersHandler::warning: in getting orders:", err)
+		if err.Error() == "wrong request" {
+			w.WriteHeader(http.StatusBadRequest)
+		} else if err.Error() == "no orders" {
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			log.Println("api::getOrdersHandler::error: unhandled:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 		w.Write([]byte("{}"))
-		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	log.Println("api::getOrdersHandler::info: order was added")
 	w.Write(res)
 	w.WriteHeader(http.StatusOK)
 }
@@ -147,18 +195,30 @@ func (a *api) getBalanceHandler(w http.ResponseWriter, r *http.Request) {
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::getBalanceHandler::warning: can't read response body with:", err)
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("{}"))
 		return
 	}
+
+	isAuthenticated := a.authenticator.CheckAuthentication(respBody)
+	if !isAuthenticated {
+		log.Println("api::getBalanceHandler::warning: not authenticated user")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("{}"))
+		return
+	}
+
 	res, err := a.service.GetBalance(respBody)
 	if err != nil {
-		log.Println("api::getBalanceHandler::warning: in getting balance:", err)
+		if err.Error() == "wrong request" {
+			w.WriteHeader(http.StatusBadRequest)
+		} else {
+			log.Println("api::getBalanceHandler::error: unhandled:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 		w.Write([]byte("{}"))
-		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	log.Println("api::getBalanceHandler::info: order was added")
 	w.Write(res)
 	w.WriteHeader(http.StatusOK)
 }
@@ -170,16 +230,32 @@ func (a *api) makeWithdrawHandler(w http.ResponseWriter, r *http.Request) {
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::makeWithdrawHandler::warning: can't read response body with:", err)
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("{}"))
 		return
 	}
+
+	isAuthenticated := a.authenticator.CheckAuthentication(respBody)
+	if !isAuthenticated {
+		log.Println("api::makeWithdrawHandler::warning: not authenticated user")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("{}"))
+		return
+	}
+
 	err = a.service.MakeWithdraw(respBody)
 	if err != nil {
-		log.Println("api::makeWithdrawHandler::warning: in order adding:", err)
-		w.WriteHeader(http.StatusNotFound)
+		if err.Error() == "wrong request" {
+			w.WriteHeader(http.StatusBadRequest)
+		} else if err.Error() == "not enough balance" {
+			w.WriteHeader(http.StatusPaymentRequired)
+		} else if err.Error() == "no such order" {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+		} else {
+			log.Println("api::makeWithdrawHandler::error: unhandled:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	} else {
-		log.Println("api::makeWithdrawHandler::info: order was added")
 		w.WriteHeader(http.StatusOK)
 	}
 	w.Write([]byte("{}"))
@@ -192,18 +268,32 @@ func (a *api) getWithdrawsHandler(w http.ResponseWriter, r *http.Request) {
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::getWithdrawsHandler::warning: can't read response body with:", err)
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("{}"))
 		return
 	}
+
+	isAuthenticated := a.authenticator.CheckAuthentication(respBody)
+	if !isAuthenticated {
+		log.Println("api::getWithdrawsHandler::warning: not authenticated user")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("{}"))
+		return
+	}
+
 	res, err := a.service.GetWithdraws(respBody)
 	if err != nil {
-		log.Println("api::getWithdrawsHandler::warning: in getting orders:", err)
+		if err.Error() == "wrong request" {
+			w.WriteHeader(http.StatusBadRequest)
+		} else if err.Error() == "no withdraws" {
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			log.Println("api::getWithdrawsHandler::error: unhandled:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 		w.Write([]byte("{}"))
-		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	log.Println("api::getWithdrawsHandler::info: order was added")
 	w.Write(res)
 	w.WriteHeader(http.StatusOK)
 }
