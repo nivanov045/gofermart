@@ -2,7 +2,6 @@ package products
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type RewardType int
@@ -45,7 +44,7 @@ func (p *Product) UnmarshalJSON(data []byte) error {
 	}
 
 	if p.RewardType == RewardTypeUnknown {
-		return fmt.Errorf("unknown reward type '%v'", aliasValue.RewardType)
+		return NewUnknownTypeError(p.RewardType, aliasValue.RewardType)
 	}
 
 	return nil
@@ -63,7 +62,7 @@ func (p *Product) MarshalJSON() ([]byte, error) {
 		rewardType = "pt"
 		break
 	default:
-		return nil, fmt.Errorf("unknown reward type: '%v'", p.RewardType)
+		return nil, NewUnknownTypeError(p.RewardType, "")
 	}
 
 	aliasValue := &struct {

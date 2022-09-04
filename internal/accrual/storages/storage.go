@@ -2,14 +2,8 @@ package storages
 
 import (
 	"context"
-	"errors"
 
 	"gofermart/internal/accrual/products"
-)
-
-var (
-	ErrOrderNotFound   = errors.New("order not found")
-	ErrProductNotFound = errors.New("product not found")
 )
 
 type Storage interface {

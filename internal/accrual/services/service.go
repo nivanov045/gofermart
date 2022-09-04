@@ -142,6 +142,11 @@ func (s *Service) RegisterOrder(_ context.Context, request []byte) error {
 		return err
 	}
 
+	// TODO: Check with Luhn algorithm
+	if order.ID != "" {
+		return ErrIncorrectFormat
+	}
+
 	s.regChan <- order
 	return nil
 }
@@ -150,7 +155,15 @@ func (s *Service) RegisterProduct(ctx context.Context, request []byte) error {
 	var product products.Product
 	err := json.Unmarshal(request, &product)
 	if err != nil {
+		e := products.UnknownTypeError{}
+		if errors.As(err, &e) {
+			return ErrIncorrectFormat
+		}
 		return err
+	}
+
+	if product.Match == "" {
+		return ErrIncorrectFormat
 	}
 
 	err = s.storage.RegisterProduct(ctx, product.Match, product.Reward, product.RewardType)

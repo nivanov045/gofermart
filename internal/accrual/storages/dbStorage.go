@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgconn"
+
 	"gofermart/internal/accrual/products"
 )
 
@@ -88,6 +90,10 @@ func (s *dbStorage) GetProduct(ctx context.Context, name string) (*products.Prod
 func (s *dbStorage) RegisterProduct(ctx context.Context, name string, reward int, rewardType products.RewardType) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO `+productsTableName+` (name, reward, reward_type) VALUES ($1, $2, $3);`, name, reward, rewardType)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrProductAlreadyRegistered
+		}
 		return err
 	}
 

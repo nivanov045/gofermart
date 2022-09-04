@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"io"
 	"net/http"
 
@@ -36,10 +37,9 @@ func (a *Server) getOrderStatus(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "number")
 
 	response, err := a.service.GetOrderStatus(r.Context(), id)
-	// TODO: Parse errors
 	if err != nil {
 		log.Error(err)
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
@@ -57,12 +57,13 @@ func (a *Server) registerOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = a.service.RegisterOrder(r.Context(), body)
-	// TODO: Parse errors
 	if err != nil {
 		log.Error(err)
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
+
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (a *Server) registerProduct(w http.ResponseWriter, r *http.Request) {
@@ -70,15 +71,24 @@ func (a *Server) registerProduct(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Error(err)
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
 	err = a.service.RegisterProduct(r.Context(), body)
-	// TODO: Parse errors
 	if err != nil {
 		log.Error(err)
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+
+		if errors.Is(err, services.ErrProductAlreadyRegistered) {
+			http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+			return
+		}
+		if errors.Is(err, services.ErrIncorrectFormat) {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		log.Error(err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 }
