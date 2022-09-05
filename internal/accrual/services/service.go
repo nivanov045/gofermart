@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"gofermart/internal/accrual/log"
@@ -15,12 +16,14 @@ import (
 type Service struct {
 	storage storages.Storage
 
-	queue            []orderList
+	registeredQueue  []orderList
 	registeredOrders map[string]bool
-	processingOrders map[string]bool
+	registeredChan   chan orderList
 
-	regChan       chan orderList
-	completedChan chan string
+	processingOrders map[string]bool
+	processedChan    chan string
+
+	mu sync.RWMutex
 
 	maxWorker int
 }
@@ -28,13 +31,13 @@ type Service struct {
 func NewService(storage storages.Storage, maxWorker int) *Service {
 	return &Service{
 		storage: storage,
-		queue:   make([]orderList, 0),
 
+		registeredQueue:  make([]orderList, 0),
 		registeredOrders: make(map[string]bool),
-		processingOrders: make(map[string]bool),
+		registeredChan:   make(chan orderList),
 
-		regChan:       make(chan orderList),
-		completedChan: make(chan string),
+		processingOrders: make(map[string]bool),
+		processedChan:    make(chan string),
 
 		maxWorker: maxWorker,
 	}
@@ -45,33 +48,61 @@ func (s *Service) Process(ctx context.Context) {
 
 	startWorker := func(order orderList) {
 		workers++
-		delete(s.registeredOrders, order.ID)
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		s.processingOrders[order.ID] = true
+
 		go func() {
-			err := s.ComputeAccrual(ctx, order)
+			err := s.computeAccrual(ctx, order)
 			if err != nil {
 				log.Error(err)
 			}
 		}()
 	}
 
+	endWorker := func(orderName string) {
+		workers--
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		delete(s.processingOrders, orderName)
+
+	}
+
+	registerOrder := func(order orderList) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.registeredOrders[order.ID] = true
+		s.registeredQueue = append(s.registeredQueue, order)
+	}
+
+	popOrder := func() *orderList {
+		if len(s.registeredQueue) == 0 {
+			return nil
+		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		order := s.registeredQueue[0]
+		s.registeredQueue = s.registeredQueue[1:]
+		delete(s.registeredOrders, order.ID)
+		return &order
+	}
+
 	for {
 		select {
-		case order := <-s.regChan:
+		case order := <-s.registeredChan:
 			if workers < s.maxWorker {
 				startWorker(order)
 			} else {
-				s.registeredOrders[order.ID] = true
-				s.queue = append(s.queue, order)
+				registerOrder(order)
 			}
-		case orderName := <-s.completedChan:
-			workers--
-			delete(s.processingOrders, orderName)
-
-			if len(s.queue) > 0 {
-				order := s.queue[0]
-				s.queue = s.queue[1:]
-				startWorker(order)
+		case orderName := <-s.processedChan:
+			endWorker(orderName)
+			if nextOrder := popOrder(); nextOrder != nil {
+				startWorker(*nextOrder)
 			}
 		case <-ctx.Done():
 			break
@@ -81,9 +112,9 @@ func (s *Service) Process(ctx context.Context) {
 	}
 }
 
-func (s *Service) ComputeAccrual(ctx context.Context, order orderList) error {
+func (s *Service) computeAccrual(ctx context.Context, order orderList) error {
 	defer func() {
-		s.completedChan <- order.ID
+		s.processedChan <- order.ID
 	}()
 
 	accrual := 0
@@ -117,11 +148,15 @@ func (s *Service) ComputeAccrual(ctx context.Context, order orderList) error {
 }
 
 func (s *Service) GetOrderStatus(ctx context.Context, id string) ([]byte, error) {
-	if _, ok := s.registeredOrders[id]; ok {
-		return json.Marshal(orderReward{ID: id, Status: OrderInfoRegistered})
-	}
-	if _, ok := s.processingOrders[id]; ok {
-		return json.Marshal(orderReward{ID: id, Status: OrderInfoProcessing})
+	{
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		if _, ok := s.registeredOrders[id]; ok {
+			return json.Marshal(orderReward{ID: id, Status: OrderInfoRegistered})
+		}
+		if _, ok := s.processingOrders[id]; ok {
+			return json.Marshal(orderReward{ID: id, Status: OrderInfoProcessing})
+		}
 	}
 
 	accrual, err := s.storage.GetOrder(ctx, id)
@@ -143,11 +178,11 @@ func (s *Service) RegisterOrder(_ context.Context, request []byte) error {
 	}
 
 	// TODO: Check with Luhn algorithm
-	if order.ID != "" {
+	if order.ID == "" {
 		return ErrIncorrectFormat
 	}
 
-	s.regChan <- order
+	s.registeredChan <- order
 	return nil
 }
 
@@ -155,8 +190,8 @@ func (s *Service) RegisterProduct(ctx context.Context, request []byte) error {
 	var product products.Product
 	err := json.Unmarshal(request, &product)
 	if err != nil {
-		e := products.UnknownTypeError{}
-		if errors.As(err, &e) {
+		var errUnknownType products.UnknownTypeError
+		if errors.As(err, &errUnknownType) {
 			return ErrIncorrectFormat
 		}
 		return err

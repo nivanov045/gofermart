@@ -9,7 +9,7 @@ type UnknownTypeError struct {
 	RewardTypeStr string
 }
 
-func (e *UnknownTypeError) Error() string {
+func (e UnknownTypeError) Error() string {
 	return fmt.Sprintf("unknown reward type: '%v' (%v)", e.RewardTypeStr, e.RewardType)
 }
 
