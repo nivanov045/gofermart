@@ -36,7 +36,7 @@ func (a *Server) Run(address string) error {
 func (a *Server) getOrderStatus(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "number")
 
-	response, err := a.service.GetOrderStatus(r.Context(), id)
+	response, err := a.service.GetOrderReward(r.Context(), id)
 	if err != nil {
 		log.Error(err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -59,6 +59,10 @@ func (a *Server) registerOrder(w http.ResponseWriter, r *http.Request) {
 	err = a.service.RegisterOrder(r.Context(), body)
 	if err != nil {
 		log.Error(err)
+		if errors.Is(err, services.ErrOrderAlreadyRegistered) {
+			http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
+			return
+		}
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}

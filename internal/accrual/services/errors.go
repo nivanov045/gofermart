@@ -9,4 +9,5 @@ import (
 var (
 	ErrIncorrectFormat          = errors.New("request has incorrect format")
 	ErrProductAlreadyRegistered = storages.ErrProductAlreadyRegistered
+	ErrOrderAlreadyRegistered   = errors.New("order already registered")
 )

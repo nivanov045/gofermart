@@ -147,30 +147,38 @@ func (s *Service) computeAccrual(ctx context.Context, order orderList) error {
 	return nil
 }
 
-func (s *Service) GetOrderStatus(ctx context.Context, id string) ([]byte, error) {
+func (s *Service) getOrderReward(ctx context.Context, id string) (orderReward, error) {
 	{
 		s.mu.RLock()
 		defer s.mu.RUnlock()
 		if _, ok := s.registeredOrders[id]; ok {
-			return json.Marshal(orderReward{ID: id, Status: OrderInfoRegistered})
+			return orderReward{ID: id, Status: OrderInfoRegistered}, nil
 		}
 		if _, ok := s.processingOrders[id]; ok {
-			return json.Marshal(orderReward{ID: id, Status: OrderInfoProcessing})
+			return orderReward{ID: id, Status: OrderInfoProcessing}, nil
 		}
 	}
 
 	accrual, err := s.storage.GetOrder(ctx, id)
 	if err != nil {
 		if errors.Is(err, storages.ErrOrderNotFound) {
-			return json.Marshal(orderReward{ID: id, Status: OrderInfoInvalid})
+			return orderReward{ID: id, Status: OrderInfoInvalid}, nil
 		}
-		return nil, err
+		return orderReward{}, err
 	}
 
-	return json.Marshal(orderReward{ID: id, Status: OrderInfoProcessed, Accrual: accrual})
+	return orderReward{ID: id, Status: OrderInfoProcessed, Accrual: accrual}, nil
 }
 
-func (s *Service) RegisterOrder(_ context.Context, request []byte) error {
+func (s *Service) GetOrderReward(ctx context.Context, id string) ([]byte, error) {
+	reward, err := s.getOrderReward(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(reward)
+}
+
+func (s *Service) RegisterOrder(ctx context.Context, request []byte) error {
 	var order orderList
 	err := json.Unmarshal(request, &order)
 	if err != nil {
@@ -180,6 +188,14 @@ func (s *Service) RegisterOrder(_ context.Context, request []byte) error {
 	// TODO: Check with Luhn algorithm
 	if order.ID == "" {
 		return ErrIncorrectFormat
+	}
+
+	orderStatus, err := s.getOrderReward(ctx, order.ID)
+	if err != nil {
+		return err
+	}
+	if orderStatus.Status != OrderInfoInvalid {
+		return ErrOrderAlreadyRegistered
 	}
 
 	s.registeredChan <- order
