@@ -10,17 +10,17 @@ import (
 )
 
 type Authenticator interface {
-	Register([]byte) error
-	Login([]byte) error
-	CheckAuthentication([]byte) bool
+	Register([]byte) (string, error)
+	Login([]byte) (string, error)
+	CheckAuthentication(string) (string, error)
 }
 
 type Service interface {
-	AddOrder([]byte) (bool, error)
-	GetOrders([]byte) ([]byte, error)
-	GetBalance([]byte) ([]byte, error)
-	MakeWithdraw([]byte) error
-	GetWithdraws([]byte) ([]byte, error)
+	AddOrder(string, []byte) (bool, error)
+	GetOrders(string) ([]byte, error)
+	GetBalance(string) ([]byte, error)
+	MakeWithdraw(string, []byte) error
+	GetWithdraws(string) ([]byte, error)
 }
 
 type api struct {
@@ -54,6 +54,7 @@ func (a *api) Run(address string) error {
 func (a *api) registerHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("api::registerHandler::info: started")
 	w.Header().Set("content-type", "application/json")
+
 	defer r.Body.Close()
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -63,7 +64,7 @@ func (a *api) registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = a.authenticator.Register(respBody)
+	token, err := a.authenticator.Register(respBody)
 	if err != nil {
 		if err.Error() == "wrong request" {
 			w.WriteHeader(http.StatusBadRequest)
@@ -75,6 +76,10 @@ func (a *api) registerHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		log.Println("api::registerHandler::info: StatusOK")
+		http.SetCookie(w, &http.Cookie{
+			Name:  "session_token",
+			Value: token,
+		})
 		w.WriteHeader(http.StatusOK)
 	}
 	w.Write([]byte("{}"))
@@ -83,6 +88,7 @@ func (a *api) registerHandler(w http.ResponseWriter, r *http.Request) {
 func (a *api) loginHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("api::loginHandler::info: started")
 	w.Header().Set("content-type", "application/json")
+
 	defer r.Body.Close()
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -92,7 +98,7 @@ func (a *api) loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = a.authenticator.Login(respBody)
+	token, err := a.authenticator.Login(respBody)
 	if err != nil {
 		if err.Error() == "wrong request" {
 			w.WriteHeader(http.StatusBadRequest)
@@ -105,13 +111,41 @@ func (a *api) loginHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		log.Println("api::loginHandler::info: StatusOK")
 		w.WriteHeader(http.StatusOK)
+		http.SetCookie(w, &http.Cookie{
+			Name:  "session_token",
+			Value: token,
+		})
 	}
 	w.Write([]byte("{}"))
 }
 
 func (a *api) addOrderHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("api::addOrderHandler::info: started")
 	w.Header().Set("content-type", "application/json")
+
+	c, err := r.Cookie("session_token")
+	if err != nil {
+		if err == http.ErrNoCookie {
+			log.Println("api::addOrderHandler::warning:", err)
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	sessionToken := c.Value
+	login, err := a.authenticator.CheckAuthentication(sessionToken)
+	if err != nil {
+		if err.Error() == "no such token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		log.Println("api::addOrderHandler::error: unhandled in auth check:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
 	defer r.Body.Close()
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -121,16 +155,9 @@ func (a *api) addOrderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAuthenticated := a.authenticator.CheckAuthentication(respBody)
-	if !isAuthenticated {
-		log.Println("api::addOrderHandler::warning: not authenticated user")
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("{}"))
-		return
-	}
-
-	isOrderAlreadyUploaded, err := a.service.AddOrder(respBody)
+	isOrderNotExisted, err := a.service.AddOrder(login, respBody)
 	if err != nil {
+		log.Println("api::addOrderHandler::warning in order adding:", err)
 		if err.Error() == "wrong request" {
 			w.WriteHeader(http.StatusBadRequest)
 		} else if err.Error() == "order was uploaded by another user" {
@@ -138,14 +165,13 @@ func (a *api) addOrderHandler(w http.ResponseWriter, r *http.Request) {
 		} else if err.Error() == "wrong format of order" {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 		} else {
-			log.Println("api::addOrderHandler::error: unhandled:", err)
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 	} else {
-		if isOrderAlreadyUploaded {
-			w.WriteHeader(http.StatusOK)
-		} else {
+		if isOrderNotExisted {
 			w.WriteHeader(http.StatusAccepted)
+		} else {
+			w.WriteHeader(http.StatusOK)
 		}
 	}
 	w.Write([]byte("{}"))
@@ -154,28 +180,33 @@ func (a *api) addOrderHandler(w http.ResponseWriter, r *http.Request) {
 func (a *api) getOrdersHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("api::getOrdersHandler::info: started")
 	w.Header().Set("content-type", "application/json")
-	defer r.Body.Close()
-	respBody, err := ioutil.ReadAll(r.Body)
+
+	c, err := r.Cookie("session_token")
 	if err != nil {
-		log.Println("api::getOrdersHandler::warning: can't read response body with:", err)
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("{}"))
+		if err == http.ErrNoCookie {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	sessionToken := c.Value
+	login, err := a.authenticator.CheckAuthentication(sessionToken)
+	if err != nil {
+		if err.Error() == "no such token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		log.Println("api::getOrdersHandler::error: unhandled in auth check:", err)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	isAuthenticated := a.authenticator.CheckAuthentication(respBody)
-	if !isAuthenticated {
-		log.Println("api::getOrdersHandler::warning: not authenticated user")
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("{}"))
-		return
-	}
-
-	res, err := a.service.GetOrders(respBody)
+	res, err := a.service.GetOrders(login)
 	if err != nil {
-		if err.Error() == "wrong request" {
-			w.WriteHeader(http.StatusBadRequest)
-		} else if err.Error() == "no orders" {
+		if err.Error() == "no orders" {
 			w.WriteHeader(http.StatusNoContent)
 		} else {
 			log.Println("api::getOrdersHandler::error: unhandled:", err)
@@ -191,31 +222,34 @@ func (a *api) getOrdersHandler(w http.ResponseWriter, r *http.Request) {
 func (a *api) getBalanceHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("api::getBalanceHandler::info: started")
 	w.Header().Set("content-type", "application/json")
-	defer r.Body.Close()
-	respBody, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		log.Println("api::getBalanceHandler::warning: can't read response body with:", err)
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("{}"))
-		return
-	}
 
-	isAuthenticated := a.authenticator.CheckAuthentication(respBody)
-	if !isAuthenticated {
-		log.Println("api::getBalanceHandler::warning: not authenticated user")
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("{}"))
-		return
-	}
-
-	res, err := a.service.GetBalance(respBody)
+	c, err := r.Cookie("session_token")
 	if err != nil {
-		if err.Error() == "wrong request" {
-			w.WriteHeader(http.StatusBadRequest)
-		} else {
-			log.Println("api::getBalanceHandler::error: unhandled:", err)
-			w.WriteHeader(http.StatusInternalServerError)
+		if err == http.ErrNoCookie {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
 		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	sessionToken := c.Value
+	login, err := a.authenticator.CheckAuthentication(sessionToken)
+	if err != nil {
+		if err.Error() == "no such token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		log.Println("api::getOrdersHandler::error: unhandled in auth check:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	res, err := a.service.GetBalance(login)
+	if err != nil {
+		log.Println("api::getBalanceHandler::error: unhandled:", err)
+		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("{}"))
 		return
 	}
@@ -226,6 +260,30 @@ func (a *api) getBalanceHandler(w http.ResponseWriter, r *http.Request) {
 func (a *api) makeWithdrawHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("api::makeWithdrawHandler::info: started")
 	w.Header().Set("content-type", "application/json")
+
+	c, err := r.Cookie("session_token")
+	if err != nil {
+		if err == http.ErrNoCookie {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	sessionToken := c.Value
+	login, err := a.authenticator.CheckAuthentication(sessionToken)
+	if err != nil {
+		if err.Error() == "no such token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		log.Println("api::getOrdersHandler::error: unhandled in auth check:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
 	defer r.Body.Close()
 	respBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -235,15 +293,7 @@ func (a *api) makeWithdrawHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAuthenticated := a.authenticator.CheckAuthentication(respBody)
-	if !isAuthenticated {
-		log.Println("api::makeWithdrawHandler::warning: not authenticated user")
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("{}"))
-		return
-	}
-
-	err = a.service.MakeWithdraw(respBody)
+	err = a.service.MakeWithdraw(login, respBody)
 	if err != nil {
 		if err.Error() == "wrong request" {
 			w.WriteHeader(http.StatusBadRequest)
@@ -264,28 +314,33 @@ func (a *api) makeWithdrawHandler(w http.ResponseWriter, r *http.Request) {
 func (a *api) getWithdrawsHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("api::getWithdrawsHandler::info: started")
 	w.Header().Set("content-type", "application/json")
-	defer r.Body.Close()
-	respBody, err := ioutil.ReadAll(r.Body)
+
+	c, err := r.Cookie("session_token")
 	if err != nil {
-		log.Println("api::getWithdrawsHandler::warning: can't read response body with:", err)
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("{}"))
+		if err == http.ErrNoCookie {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	sessionToken := c.Value
+	login, err := a.authenticator.CheckAuthentication(sessionToken)
+	if err != nil {
+		if err.Error() == "no such token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		log.Println("api::getOrdersHandler::error: unhandled in auth check:", err)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	isAuthenticated := a.authenticator.CheckAuthentication(respBody)
-	if !isAuthenticated {
-		log.Println("api::getWithdrawsHandler::warning: not authenticated user")
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("{}"))
-		return
-	}
-
-	res, err := a.service.GetWithdraws(respBody)
+	res, err := a.service.GetWithdraws(login)
 	if err != nil {
-		if err.Error() == "wrong request" {
-			w.WriteHeader(http.StatusBadRequest)
-		} else if err.Error() == "no withdraws" {
+		if err.Error() == "no withdraws" {
 			w.WriteHeader(http.StatusNoContent)
 		} else {
 			log.Println("api::getWithdrawsHandler::error: unhandled:", err)
