@@ -4,9 +4,9 @@ import "time"
 
 const (
 	ProcessingTypeNew        string = "NEW"
-	ProcessingTypeProcessing        = "PROCESSING"
-	ProcessingTypeInvalid           = "INVALID"
-	ProcessingTypeProcessed         = "PROCESSED"
+	ProcessingTypeProcessing string = "PROCESSING"
+	ProcessingTypeInvalid    string = "INVALID"
+	ProcessingTypeProcessed  string = "PROCESSED"
 )
 
 type Interface struct {

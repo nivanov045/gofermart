@@ -6,6 +6,7 @@ import (
 	"github.com/nivanov045/gofermart/cmd/gophermart/api"
 	"github.com/nivanov045/gofermart/cmd/gophermart/authenticator"
 	"github.com/nivanov045/gofermart/cmd/gophermart/config"
+	"github.com/nivanov045/gofermart/cmd/gophermart/crypto"
 	"github.com/nivanov045/gofermart/cmd/gophermart/service"
 	"github.com/nivanov045/gofermart/cmd/gophermart/storage"
 )
@@ -22,7 +23,8 @@ func main() {
 		log.Fatalln("service::main::error: in storage creation:", err)
 	}
 	serv := service.New(myStorage, cfg.DebugMode)
-	auth := authenticator.New(myStorage, cfg.DebugMode)
-	myapi := api.New(serv, auth)
-	log.Fatalln(myapi.Run(cfg.ServiceAddress))
+	myCrypto := crypto.New(cfg.Key)
+	auth := authenticator.New(myStorage, cfg.DebugMode, myCrypto)
+	myAPI := api.New(serv, auth)
+	log.Fatalln(myAPI.Run(cfg.ServiceAddress))
 }

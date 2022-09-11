@@ -24,7 +24,7 @@ func BuildConfig() (Config, error) {
 
 func (cfg *Config) buildFromFlags() {
 	flag.StringVar(&cfg.ServiceAddress, "a", "127.0.0.1:8080", "service address")
-	flag.StringVar(&cfg.AccrualAddress, "f", "", "accrual system address")
+	flag.StringVar(&cfg.AccrualAddress, "r", "", "accrual system address")
 	flag.StringVar(&cfg.DatabaseURI, "d", "", "database dsn")
 	flag.StringVar(&cfg.Key, "k", "1337qwerty", "key for passwords hashing")
 	flag.BoolVar(&cfg.DebugMode, "deb", false, "is debug mode enabled")

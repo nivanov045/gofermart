@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"runtime"
+	"sync"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -18,6 +19,7 @@ type storage struct {
 	databasePath string
 	db           *sql.DB
 	tables       []table
+	ordersMutex  sync.Mutex
 }
 
 /*
@@ -305,7 +307,13 @@ func (s *storage) AddUser(login string, passwordHash string) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO users(user_login, password_hash)
 		VALUES ($1, $2);`, login, passwordHash)
-	return err
+	if err != nil {
+		if err.Error() == "pq: duplicate key value violates unique constraint \"users_user_login_key\"" {
+			return errors.New("login is already in use")
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *storage) AddSession(login string, sessionToken string, expiresAt time.Time) error {
@@ -317,20 +325,21 @@ func (s *storage) AddSession(login string, sessionToken string, expiresAt time.T
 	return err
 }
 
-func (s *storage) GetUserBySessionToken(sessionToken string) (string, error) {
+func (s *storage) GetSessionInfo(sessionToken string) (string, time.Time, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var value string
+	var login string
+	var expTime time.Time
 	row := s.db.QueryRowContext(ctx,
-		`SELECT user_login FROM sessions WHERE session_token=$1;`, sessionToken)
-	err := row.Scan(&value)
+		`SELECT user_login, valid_until FROM sessions WHERE session_token=$1;`, sessionToken)
+	err := row.Scan(&login, &expTime)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", errors.New("no such token")
+			return "", time.Time{}, errors.New("no such token")
 		}
-		return "", err
+		return "", time.Time{}, err
 	}
-	return value, nil
+	return login, expTime, nil
 }
 
 func (s *storage) CheckPassword(login string, passwordHash string) (bool, error) {
@@ -345,4 +354,12 @@ func (s *storage) CheckPassword(login string, passwordHash string) (bool, error)
 		return false, err
 	}
 	return value, nil
+}
+
+func (s *storage) RemoveSession(sessionToken string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM sessions WHERE session_token = $1;`, sessionToken)
+	return err
 }

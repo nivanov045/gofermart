@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 
 	"github.com/nivanov045/gofermart/internal/order"
 	"github.com/nivanov045/gofermart/internal/withdraw"
@@ -26,15 +27,41 @@ func New(storage Storage, isDebug bool) *service {
 	return &service{storage: storage, isDebug: isDebug}
 }
 
-func checkOrderNumber(orderNumber string) bool {
-	// TODO: Realise algorithm
-	return true
+// From https://ru.wikipedia.org/wiki/Алгоритм_Луна#Примеры_для_вычисления_контрольной_цифры
+func checksum(number int64) bool {
+	var luhn int64
+
+	for i := 0; number > 0; i++ {
+		cur := number % 10
+
+		if i%2 == 0 { // even
+			cur = cur * 2
+			if cur > 9 {
+				cur = cur%10 + cur/10
+			}
+		}
+
+		luhn += cur
+		number = number / 10
+	}
+	return luhn%10 == 0
+}
+
+func (s *service) checkOrderNumber(orderNumber string) bool {
+	if s.isDebug {
+		return true
+	}
+	n, err := strconv.ParseInt(orderNumber, 10, 64)
+	if err != nil {
+		return false
+	}
+	return checksum(n)
 }
 
 // AddOrder returns true if order didn't exist before call, false if existed
 func (s *service) AddOrder(login string, requestBody []byte) (bool, error) {
 	orderNumber := string(requestBody)
-	if !checkOrderNumber(orderNumber) {
+	if !s.checkOrderNumber(orderNumber) {
 		return true, errors.New("wrong format of order")
 	}
 	isExists, err := s.storage.FindOrderByUser(login, orderNumber)
@@ -77,8 +104,25 @@ func (s *service) GetOrders(login string) ([]byte, error) {
 }
 
 func (s *service) calculateBalance(login string) (current int64, withdrawn int64, err error) {
-	//TODO: find all finished orders and withdraws and calculate balance
-	return 0, 0, nil
+	current = 0
+	withdrawn = 0
+	err = nil
+	withdraws, err := s.storage.GetWithdraws(login)
+	if err != nil {
+		return current, withdrawn, err
+	}
+	orders, err := s.storage.GetOrders(login)
+	if err != nil {
+		return current, withdrawn, err
+	}
+	for _, w := range withdraws {
+		withdrawn += w.Sum
+	}
+	for _, o := range orders {
+		current += o.Accrual
+	}
+	current -= withdrawn
+	return current, withdrawn, err
 }
 
 func (s *service) GetBalance(login string) ([]byte, error) {

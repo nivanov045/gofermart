@@ -13,6 +13,7 @@ type Authenticator interface {
 	Register([]byte) (string, error)
 	Login([]byte) (string, error)
 	CheckAuthentication(string) (string, error)
+	Logout(string) error
 }
 
 type Service interface {
@@ -41,6 +42,7 @@ func (a *api) Run(address string) error {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+	// Specificated
 	r.Post("/api/user/register", a.registerHandler)
 	r.Post("/api/user/login", a.loginHandler)
 	r.Post("/api/user/orders", a.addOrderHandler)
@@ -48,11 +50,14 @@ func (a *api) Run(address string) error {
 	r.Get("/api/user/balance", a.getBalanceHandler)
 	r.Post("/api/user/balance/withdraw", a.makeWithdrawHandler)
 	r.Get("/api/user/balance/withdrawals", a.getWithdrawsHandler)
+
+	// Not specificated
+	r.Post("/api/user/logout", a.logoutHandler)
+
 	return http.ListenAndServe(address, r)
 }
 
 func (a *api) registerHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("api::registerHandler::info: started")
 	w.Header().Set("content-type", "application/json")
 
 	defer r.Body.Close()
@@ -86,7 +91,6 @@ func (a *api) registerHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *api) loginHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("api::loginHandler::info: started")
 	w.Header().Set("content-type", "application/json")
 
 	defer r.Body.Close()
@@ -119,6 +123,36 @@ func (a *api) loginHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("{}"))
 }
 
+func (a *api) logoutHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+
+	c, err := r.Cookie("session_token")
+	if err != nil {
+		if err == http.ErrNoCookie {
+			log.Println("api::logoutHandler::warning:", err)
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	sessionToken := c.Value
+	err = a.authenticator.Logout(sessionToken)
+	if err != nil {
+		if err.Error() == "no such token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("{}"))
+			return
+		}
+		log.Println("api::logoutHandler::error: unhandled in auth check:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("{}"))
+}
+
 func (a *api) addOrderHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 
@@ -136,7 +170,7 @@ func (a *api) addOrderHandler(w http.ResponseWriter, r *http.Request) {
 	sessionToken := c.Value
 	login, err := a.authenticator.CheckAuthentication(sessionToken)
 	if err != nil {
-		if err.Error() == "no such token" {
+		if err.Error() == "no such token" || err.Error() == "session token expired" {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte("{}"))
 			return
