@@ -1,9 +1,12 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"strconv"
+	"time"
 
 	"github.com/nivanov045/gofermart/internal/order"
 	"github.com/nivanov045/gofermart/internal/withdraw"
@@ -13,18 +16,55 @@ type Storage interface {
 	FindOrderByUser(login string, number string) (bool, error)
 	FindOrder(number string) (bool, error)
 	AddOrder(login string, number string) error
+	UpdateOrder(order2 order.InterfaceForAccrualSystem) error
 	GetOrders(login string) ([]order.Order, error)
 	MakeWithdraw(login string, order string, sum int64) error
 	GetWithdraws(login string) ([]withdraw.Withdraw, error)
 }
 
-type service struct {
-	storage Storage
-	isDebug bool
+type AccrualSystem interface {
+	SetChannelToResponseToService(chan order.InterfaceForAccrualSystem)
+	RunListenToService(<-chan string)
 }
 
-func New(storage Storage, isDebug bool) *service {
-	return &service{storage: storage, isDebug: isDebug}
+type service struct {
+	storage           Storage
+	isDebug           bool
+	accrualSystem     AccrualSystem
+	toAccrualSystem   chan string
+	fromAccrualSystem chan order.InterfaceForAccrualSystem
+}
+
+func New(storage Storage, accrualSystem AccrualSystem, isDebug bool) *service {
+	res := &service{
+		storage:           storage,
+		isDebug:           isDebug,
+		accrualSystem:     accrualSystem,
+		toAccrualSystem:   make(chan string),
+		fromAccrualSystem: make(chan order.InterfaceForAccrualSystem),
+	}
+	res.accrualSystem.SetChannelToResponseToService(res.fromAccrualSystem)
+	go res.RunListenToAccrual()
+	go res.accrualSystem.RunListenToService(res.toAccrualSystem)
+	return res
+}
+
+func (s *service) RunListenToAccrual() {
+	ctx := context.Background()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ord := <-s.fromAccrualSystem:
+			log.Println("service::RunListenToAccrual::info: received value")
+			err := s.storage.UpdateOrder(ord)
+			if err != nil {
+				log.Println("service::RunListenToAccrual::error:", err)
+			}
+		default:
+			time.Sleep(1 * time.Second)
+		}
+	}
 }
 
 // From https://ru.wikipedia.org/wiki/Алгоритм_Луна#Примеры_для_вычисления_контрольной_цифры
@@ -76,7 +116,11 @@ func (s *service) AddOrder(login string, requestBody []byte) (bool, error) {
 		return false, errors.New("order was uploaded by another user")
 	}
 	err = s.storage.AddOrder(login, orderNumber)
-	return true, err
+	if err != nil {
+		return true, err
+	}
+	s.toAccrualSystem <- orderNumber
+	return true, nil
 }
 
 func (s *service) GetOrders(login string) ([]byte, error) {

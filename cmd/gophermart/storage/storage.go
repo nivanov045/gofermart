@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log"
 	"runtime"
-	"sync"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -19,7 +18,6 @@ type storage struct {
 	databasePath string
 	db           *sql.DB
 	tables       []table
-	ordersMutex  sync.Mutex
 }
 
 /*
@@ -253,6 +251,15 @@ func (s *storage) GetOrders(login string) ([]order.Order, error) {
 		res = append(res, val)
 	}
 	return res, nil
+}
+
+func (s *storage) UpdateOrder(orderData order.InterfaceForAccrualSystem) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE orders SET status = $1, accrual = $2 WHERE order_num = $3;`, orderData.Status, orderData.Accrual,
+		orderData.Number)
+	return err
 }
 
 func (s *storage) MakeWithdraw(login string, order string, sum int64) error {

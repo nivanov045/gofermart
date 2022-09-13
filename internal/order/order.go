@@ -9,6 +9,12 @@ const (
 	ProcessingTypeProcessed  string = "PROCESSED"
 )
 
+type InterfaceForAccrualSystem struct {
+	Number  string
+	Status  string
+	Accrual int64
+}
+
 type Interface struct {
 	Number     string    `json:"number"`
 	Status     string    `json:"status"`
