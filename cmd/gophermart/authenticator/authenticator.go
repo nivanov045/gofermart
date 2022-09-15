@@ -107,5 +107,5 @@ func (a *authenticator) Logout(sessionToken string) error {
 		return err
 	}
 	err = a.storage.RemoveSession(sessionToken)
-	return nil
+	return err
 }
