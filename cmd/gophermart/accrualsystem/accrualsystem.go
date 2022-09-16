@@ -99,8 +99,8 @@ func (a *accrualsystem) getAccrual(orderNumber string) {
 	}
 
 	client := &http.Client{}
-	requestUrl := a.databasePath + "/api/orders/" + orderNumber
-	request, err := http.NewRequest(http.MethodGet, requestUrl, bytes.NewBuffer([]byte(orderNumber)))
+	requestURL := a.databasePath + "/api/orders/" + orderNumber
+	request, err := http.NewRequest(http.MethodGet, requestURL, bytes.NewBuffer([]byte(orderNumber)))
 	if err != nil {
 		log.Println("accrual::getAccrual::error: NewRequest:", err)
 		a.mutexToOrders.Lock()
