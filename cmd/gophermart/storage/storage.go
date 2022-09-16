@@ -253,7 +253,7 @@ func (s *storage) GetOrders(login string) ([]order.Order, error) {
 	return res, nil
 }
 
-func (s *storage) UpdateOrder(orderData order.InterfaceForAccrualSystem) error {
+func (s *storage) UpdateOrder(orderData order.Order) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, err := s.db.ExecContext(ctx,
@@ -267,7 +267,7 @@ func (s *storage) MakeWithdraw(login string, order string, sum int64) error {
 	defer cancel()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO withdraws(user_login, created_at, sum, order_num)
-		VALUES ($1, $2, $3);`, login, time.Now(), sum, order)
+		VALUES ($1, $2, $3, $4);`, login, time.Now(), sum, order)
 	if err != nil {
 		log.Println("storage::MakeWithdraw::error: in ExecContext:", err)
 		return err

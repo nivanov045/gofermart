@@ -16,14 +16,14 @@ type Storage interface {
 	FindOrderByUser(login string, number string) (bool, error)
 	FindOrder(number string) (bool, error)
 	AddOrder(login string, number string) error
-	UpdateOrder(order2 order.InterfaceForAccrualSystem) error
+	UpdateOrder(order2 order.Order) error
 	GetOrders(login string) ([]order.Order, error)
 	MakeWithdraw(login string, order string, sum int64) error
 	GetWithdraws(login string) ([]withdraw.Withdraw, error)
 }
 
 type AccrualSystem interface {
-	SetChannelToResponseToService(chan order.InterfaceForAccrualSystem)
+	SetChannelToResponseToService(chan order.Order)
 	RunListenToService(<-chan string)
 }
 
@@ -32,7 +32,7 @@ type service struct {
 	isDebug           bool
 	accrualSystem     AccrualSystem
 	toAccrualSystem   chan string
-	fromAccrualSystem chan order.InterfaceForAccrualSystem
+	fromAccrualSystem chan order.Order
 }
 
 func New(storage Storage, accrualSystem AccrualSystem, isDebug bool) *service {
@@ -41,7 +41,7 @@ func New(storage Storage, accrualSystem AccrualSystem, isDebug bool) *service {
 		isDebug:           isDebug,
 		accrualSystem:     accrualSystem,
 		toAccrualSystem:   make(chan string),
-		fromAccrualSystem: make(chan order.InterfaceForAccrualSystem),
+		fromAccrualSystem: make(chan order.Order),
 	}
 	res.accrualSystem.SetChannelToResponseToService(res.fromAccrualSystem)
 	go res.RunListenToAccrual()
@@ -67,14 +67,13 @@ func (s *service) RunListenToAccrual() {
 	}
 }
 
-// From https://ru.wikipedia.org/wiki/Алгоритм_Луна#Примеры_для_вычисления_контрольной_цифры
 func checksum(number int64) bool {
 	var luhn int64
 
 	for i := 0; number > 0; i++ {
 		cur := number % 10
 
-		if i%2 == 0 { // even
+		if (i+1)%2 == 0 {
 			cur = cur * 2
 			if cur > 9 {
 				cur = cur%10 + cur/10
@@ -199,12 +198,9 @@ func (s *service) MakeWithdraw(login string, requestBody []byte) error {
 	if err != nil {
 		return errors.New("wrong query")
 	}
-	isExists, err := s.storage.FindOrderByUser(login, currentRequest.Order)
-	if err != nil {
-		return err
-	}
-	if !isExists {
-		return errors.New("no such order")
+	isOrderOk := s.checkOrderNumber(currentRequest.Order)
+	if !isOrderOk {
+		return errors.New("wrong format of order")
 	}
 	current, _, err := s.calculateBalance(login)
 	if err != nil {
@@ -227,7 +223,16 @@ func (s *service) GetWithdraws(login string) ([]byte, error) {
 	if len(withdraws) == 0 {
 		return nil, errors.New("no withdraws")
 	}
-	marshal, err := json.Marshal(withdraws)
+	var res []withdraw.Interface
+	for _, w := range withdraws {
+		el := withdraw.Interface{
+			Order:       w.Order,
+			Sum:         float64(w.Sum) / 100,
+			ProcessedAt: w.ProcessedAt,
+		}
+		res = append(res, el)
+	}
+	marshal, err := json.Marshal(res)
 	if err != nil {
 		return nil, err
 	}

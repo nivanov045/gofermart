@@ -10,9 +10,9 @@ const (
 )
 
 type InterfaceForAccrualSystem struct {
-	Number  string
-	Status  string
-	Accrual int64
+	Number  string  `json:"order"`
+	Status  string  `json:"status"`
+	Accrual float64 `json:"accrual,omitempty"`
 }
 
 type Interface struct {

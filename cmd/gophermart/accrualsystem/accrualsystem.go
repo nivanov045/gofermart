@@ -18,7 +18,7 @@ import (
 type accrualsystem struct {
 	databasePath     string
 	isDebug          bool
-	channelToService chan<- order.InterfaceForAccrualSystem
+	channelToService chan<- order.Order
 	ordersToProcess  []string
 	mutexToOrders    sync.Mutex
 }
@@ -46,7 +46,7 @@ func (a *accrualsystem) processOrders() {
 	}
 }
 
-func (a *accrualsystem) SetChannelToResponseToService(ch chan order.InterfaceForAccrualSystem) {
+func (a *accrualsystem) SetChannelToResponseToService(ch chan order.Order) {
 	a.channelToService = ch
 }
 
@@ -74,7 +74,7 @@ func (a *accrualsystem) RunListenToService(channelFromService <-chan string) {
 
 func (a *accrualsystem) getAccrual(orderNumber string) {
 	if a.isDebug {
-		var res order.InterfaceForAccrualSystem
+		var res order.Order
 		res.Number = orderNumber
 		random := rand.Intn(10)
 		if random < 2 {
@@ -99,7 +99,8 @@ func (a *accrualsystem) getAccrual(orderNumber string) {
 	}
 
 	client := &http.Client{}
-	request, err := http.NewRequest(http.MethodGet, a.databasePath, bytes.NewBuffer([]byte(orderNumber)))
+	requestUrl := a.databasePath + "/api/orders/" + orderNumber
+	request, err := http.NewRequest(http.MethodGet, requestUrl, bytes.NewBuffer([]byte(orderNumber)))
 	if err != nil {
 		log.Println("accrual::getAccrual::error: NewRequest:", err)
 		a.mutexToOrders.Lock()
@@ -130,7 +131,14 @@ func (a *accrualsystem) getAccrual(orderNumber string) {
 			a.addToOrders(orderNumber)
 			return
 		}
-		a.channelToService <- res
+		resAsOrder := order.Order{
+			Number: res.Number,
+			Status: res.Status,
+		}
+		if res.Status == order.ProcessingTypeProcessed {
+			resAsOrder.Accrual = int64(res.Accrual * 100)
+		}
+		a.channelToService <- resAsOrder
 	case http.StatusTooManyRequests:
 		retryAfter := response.Header.Get("Retry-After")
 		n, err := strconv.ParseInt(retryAfter, 10, 64)
@@ -139,6 +147,17 @@ func (a *accrualsystem) getAccrual(orderNumber string) {
 			return
 		}
 		time.Sleep(time.Duration(n) * time.Second)
+		a.addToOrders(orderNumber)
+	default:
+		log.Println("accrual::getAccrual::info: default")
+		defer response.Body.Close()
+		respBody, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			log.Println("accrual::getAccrual::error: ReadAll:", err)
+			a.addToOrders(orderNumber)
+			return
+		}
+		log.Println("accrual::getAccrual::info:", string(respBody))
 		a.addToOrders(orderNumber)
 	}
 }

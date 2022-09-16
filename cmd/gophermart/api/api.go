@@ -49,7 +49,7 @@ func (a *api) Run(address string) error {
 	r.Get("/api/user/orders", a.getOrdersHandler)
 	r.Get("/api/user/balance", a.getBalanceHandler)
 	r.Post("/api/user/balance/withdraw", a.makeWithdrawHandler)
-	r.Get("/api/user/balance/withdrawals", a.getWithdrawsHandler)
+	r.Get("/api/user/withdrawals", a.getWithdrawsHandler)
 
 	// Not specificated
 	r.Post("/api/user/logout", a.logoutHandler)
@@ -114,11 +114,11 @@ func (a *api) loginHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		log.Println("api::loginHandler::info: StatusOK")
-		w.WriteHeader(http.StatusOK)
 		http.SetCookie(w, &http.Cookie{
 			Name:  "session_token",
 			Value: token,
 		})
+		w.WriteHeader(http.StatusOK)
 	}
 	w.Write([]byte("{}"))
 }
@@ -333,7 +333,7 @@ func (a *api) makeWithdrawHandler(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 		} else if err.Error() == "not enough balance" {
 			w.WriteHeader(http.StatusPaymentRequired)
-		} else if err.Error() == "no such order" {
+		} else if err.Error() == "wrong format of order" {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 		} else {
 			log.Println("api::makeWithdrawHandler::error: unhandled:", err)
