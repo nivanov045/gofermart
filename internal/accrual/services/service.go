@@ -5,181 +5,94 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
-	"time"
 
 	"gofermart/internal/accrual/log"
-	"gofermart/internal/accrual/products"
+	"gofermart/internal/accrual/models"
 	"gofermart/internal/accrual/storages"
 )
 
 type Service struct {
 	storage storages.Storage
+	queue   storages.OrderQueue
 
-	registeredQueue  []orderList
-	registeredOrders map[string]bool
-	registeredChan   chan orderList
-
-	processingOrders map[string]bool
-	processedChan    chan string
-
-	mu sync.RWMutex
+	orderQueueCh chan models.OrderList
+	processedCh  chan string
 
 	maxWorker int
 }
 
-func NewService(storage storages.Storage, maxWorker int) *Service {
+type accrualResult struct {
+	id      string
+	accrual int
+	err     error
+}
+
+func NewService(storage storages.Storage, queue storages.OrderQueue, maxWorker int) *Service {
 	return &Service{
 		storage: storage,
+		queue:   queue,
 
-		registeredQueue:  make([]orderList, 0),
-		registeredOrders: make(map[string]bool),
-		registeredChan:   make(chan orderList),
-
-		processingOrders: make(map[string]bool),
-		processedChan:    make(chan string),
+		orderQueueCh: make(chan models.OrderList),
 
 		maxWorker: maxWorker,
 	}
 }
 
 func (s *Service) Process(ctx context.Context) {
-	workers := 0
+	fanOutChs := fanOut(s.orderQueueCh, s.maxWorker)
 
-	startWorker := func(order orderList) {
-		workers++
+	workerChs := make([]chan accrualResult, 0, s.maxWorker)
+	for _, fanOutCh := range fanOutChs {
+		workerCh := make(chan accrualResult)
+		s.newWorker(ctx, fanOutCh, workerCh)
+		workerChs = append(workerChs, workerCh)
+	}
 
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.processingOrders[order.ID] = true
+	// TODO: Mode to separate func
+	for resultAccrual := range fanIn(workerChs...) {
+		if resultAccrual.err != nil {
+			// TODO: What we have to do with failed computation? Set to invalid status?
+			log.Error(resultAccrual.err)
+			continue
+		}
 
-		go func() {
-			err := s.computeAccrual(ctx, order)
+		err := s.storage.UpdateOrderStatus(ctx, resultAccrual.id, models.OrderStatus{Status: models.OrderStatusProcessed, Accrual: resultAccrual.accrual})
+		if err != nil {
+			log.Error(err)
+
+			err := s.storage.UpdateOrderStatus(ctx, resultAccrual.id, models.OrderStatus{Status: models.OrderStatusRegistered, Accrual: 0})
 			if err != nil {
 				log.Error(err)
 			}
-		}()
-	}
-
-	endWorker := func(orderName string) {
-		workers--
-
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		delete(s.processingOrders, orderName)
-
-	}
-
-	registerOrder := func(order orderList) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.registeredOrders[order.ID] = true
-		s.registeredQueue = append(s.registeredQueue, order)
-	}
-
-	popOrder := func() *orderList {
-		if len(s.registeredQueue) == 0 {
-			return nil
-		}
-
-		s.mu.Lock()
-		defer s.mu.Unlock()
-
-		order := s.registeredQueue[0]
-		s.registeredQueue = s.registeredQueue[1:]
-		delete(s.registeredOrders, order.ID)
-		return &order
-	}
-
-	for {
-		select {
-		case order := <-s.registeredChan:
-			if workers < s.maxWorker {
-				startWorker(order)
-			} else {
-				registerOrder(order)
-			}
-		case orderName := <-s.processedChan:
-			endWorker(orderName)
-			if nextOrder := popOrder(); nextOrder != nil {
-				startWorker(*nextOrder)
-			}
-		case <-ctx.Done():
-			break
-		default:
-			time.Sleep(time.Millisecond)
-		}
-	}
-}
-
-func (s *Service) computeAccrual(ctx context.Context, order orderList) error {
-	defer func() {
-		s.processedChan <- order.ID
-	}()
-
-	accrual := 0
-	for _, orderProduct := range order.Goods {
-		product, err := s.storage.GetProduct(ctx, orderProduct.Description)
-		if errors.Is(err, storages.ErrProductNotFound) {
 			continue
 		}
+		log.Debug(fmt.Sprintf("Order '%v' processed", resultAccrual.id))
+
+		err = s.queue.RemoveOrder(ctx, resultAccrual.id)
 		if err != nil {
-			return err
-		}
-
-		switch product.RewardType {
-		case products.RewardTypePoints:
-			accrual += product.Reward
-			break
-		case products.RewardTypePercent:
-			accrual += int(0.01 * float64(product.Reward) * float64(orderProduct.Price))
-			break
-		default:
-			return fmt.Errorf("unknown reward type: '%v'", product.RewardType)
+			log.Error(err)
 		}
 	}
-
-	err := s.storage.StoreOrder(ctx, order.ID, accrual)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *Service) getOrderReward(ctx context.Context, id string) (orderReward, error) {
-	{
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-		if _, ok := s.registeredOrders[id]; ok {
-			return orderReward{ID: id, Status: OrderInfoRegistered}, nil
-		}
-		if _, ok := s.processingOrders[id]; ok {
-			return orderReward{ID: id, Status: OrderInfoProcessing}, nil
-		}
-	}
-
-	accrual, err := s.storage.GetOrder(ctx, id)
-	if err != nil {
-		if errors.Is(err, storages.ErrOrderNotFound) {
-			return orderReward{ID: id, Status: OrderInfoInvalid}, nil
-		}
-		return orderReward{}, err
-	}
-
-	return orderReward{ID: id, Status: OrderInfoProcessed, Accrual: accrual}, nil
 }
 
 func (s *Service) GetOrderReward(ctx context.Context, id string) ([]byte, error) {
-	reward, err := s.getOrderReward(ctx, id)
+	orderStatus, err := s.storage.GetOrderStatus(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(reward)
+
+	var orderReward models.OrderReward
+	if orderStatus.Status == models.OrderStatusProcessed {
+		orderReward = models.OrderReward{ID: id, Accrual: orderStatus.Accrual, Status: models.OrderStatusText(orderStatus.Status)}
+	} else {
+		orderReward = models.OrderReward{ID: id, Status: models.OrderStatusText(orderStatus.Status)}
+	}
+
+	return json.Marshal(orderReward)
 }
 
 func (s *Service) RegisterOrder(ctx context.Context, request []byte) error {
-	var order orderList
+	var order models.OrderList
 	err := json.Unmarshal(request, &order)
 	if err != nil {
 		return err
@@ -190,23 +103,32 @@ func (s *Service) RegisterOrder(ctx context.Context, request []byte) error {
 		return ErrIncorrectFormat
 	}
 
-	orderStatus, err := s.getOrderReward(ctx, order.ID)
-	if err != nil {
+	orderStatus, err := s.storage.GetOrderStatus(ctx, order.ID)
+	if err != nil && !errors.Is(err, storages.ErrOrderNotFound) {
 		return err
 	}
-	if orderStatus.Status != OrderInfoInvalid {
+	if orderStatus.Status != models.OrderStatusInvalid {
 		return ErrOrderAlreadyRegistered
 	}
 
-	s.registeredChan <- order
+	err = s.queue.RegisterOrder(ctx, order.ID, request)
+	if err != nil {
+		return err
+	}
+
+	log.Debug(fmt.Sprintf("Order '%v' registered", order.ID))
+	go func() {
+		s.orderQueueCh <- order
+	}()
+
 	return nil
 }
 
 func (s *Service) RegisterProduct(ctx context.Context, request []byte) error {
-	var product products.Product
+	var product models.Product
 	err := json.Unmarshal(request, &product)
 	if err != nil {
-		var errUnknownType products.UnknownTypeError
+		var errUnknownType models.UnknownTypeError
 		if errors.As(err, &errUnknownType) {
 			return ErrIncorrectFormat
 		}

@@ -29,13 +29,13 @@ func main() {
 	defer db.Close()
 
 	ctx := context.Background()
-	storage, err := storages.NewDBStorage(ctx, db)
+	storage, queue, err := storages.NewDBStorage(ctx, db)
 	if err != nil {
 		log.Panic(err)
 	}
 
 	wg := sync.WaitGroup{}
-	service := services.NewService(storage, runtime.NumCPU())
+	service := services.NewService(storage, queue, runtime.NumCPU())
 	wg.Add(1)
 	go func() {
 		service.Process(ctx)

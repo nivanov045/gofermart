@@ -23,6 +23,6 @@ func Warn(err error) {
 	log.Warn().Stack().Err(err).Send()
 }
 
-func Info(msg string) {
-	log.Info().Stack().Msg(msg)
+func Debug(msg string) {
+	log.Debug().Stack().Msg(msg)
 }
