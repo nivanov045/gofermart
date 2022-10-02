@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"gofermart/internal/accrual/log"
-	"gofermart/internal/accrual/models"
-	"gofermart/internal/accrual/storages"
+	"github.com/nivanov045/gofermart/internal/accrual/log"
+	"github.com/nivanov045/gofermart/internal/accrual/models"
+	"github.com/nivanov045/gofermart/internal/accrual/storages"
 )
 
 type Service struct {

@@ -7,8 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"gofermart/internal/accrual/log"
-	"gofermart/internal/accrual/services"
+	"github.com/nivanov045/gofermart/internal/accrual/log"
+	"github.com/nivanov045/gofermart/internal/accrual/services"
 )
 
 type Server struct {

@@ -8,10 +8,10 @@ import (
 
 	_ "github.com/jackc/pgx/v4/stdlib"
 
-	"gofermart/internal/accrual/log"
-	"gofermart/internal/accrual/server"
-	"gofermart/internal/accrual/services"
-	"gofermart/internal/accrual/storages"
+	"github.com/nivanov045/gofermart/internal/accrual/log"
+	"github.com/nivanov045/gofermart/internal/accrual/server"
+	"github.com/nivanov045/gofermart/internal/accrual/services"
+	"github.com/nivanov045/gofermart/internal/accrual/storages"
 )
 
 func main() {

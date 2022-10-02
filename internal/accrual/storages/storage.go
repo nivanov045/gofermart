@@ -3,7 +3,7 @@ package storages
 import (
 	"context"
 
-	"gofermart/internal/accrual/models"
+	"github.com/nivanov045/gofermart/internal/accrual/models"
 )
 
 type Storage interface {

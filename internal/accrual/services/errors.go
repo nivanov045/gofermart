@@ -3,7 +3,7 @@ package services
 import (
 	"errors"
 
-	"gofermart/internal/accrual/storages"
+	"github.com/nivanov045/gofermart/internal/accrual/storages"
 )
 
 var (

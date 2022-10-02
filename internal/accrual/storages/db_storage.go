@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgconn"
 
-	"gofermart/internal/accrual/models"
+	"github.com/nivanov045/gofermart/internal/accrual/models"
 )
 
 const (
