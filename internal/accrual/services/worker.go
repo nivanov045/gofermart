@@ -2,13 +2,11 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/nivanov045/gofermart/internal/accrual/log"
 	"github.com/nivanov045/gofermart/internal/accrual/models"
-	"github.com/nivanov045/gofermart/internal/accrual/storages"
 )
 
 func fanOut(inputCh chan models.OrderList, n int) []chan models.OrderList {
@@ -82,21 +80,20 @@ func (s *Service) newWorker(ctx context.Context, in chan models.OrderList, out c
 func (s *Service) computeAccrual(ctx context.Context, order models.OrderList) accrualResult {
 	accrual := 0.0
 	for _, orderProduct := range order.Goods {
-		product, err := s.storage.GetProduct(ctx, orderProduct.Description)
-		if errors.Is(err, storages.ErrProductNotFound) {
-			continue
-		}
+		products, err := s.storage.MatchProducts(ctx, orderProduct.Description)
 		if err != nil {
 			return accrualResult{id: order.ID, err: err}
 		}
 
-		switch product.RewardType {
-		case models.RewardTypePoints:
-			accrual += product.Reward
-		case models.RewardTypePercent:
-			accrual += 0.01 * product.Reward * orderProduct.Price
-		default:
-			return accrualResult{id: order.ID, err: fmt.Errorf("unknown reward type: '%v'", product.RewardType)}
+		for _, product := range products {
+			switch product.RewardType {
+			case models.RewardTypePoints:
+				accrual += product.Reward
+			case models.RewardTypePercent:
+				accrual += 0.01 * product.Reward * orderProduct.Price
+			default:
+				return accrualResult{id: order.ID, err: fmt.Errorf("unknown reward type: '%v'", product.RewardType)}
+			}
 		}
 	}
 

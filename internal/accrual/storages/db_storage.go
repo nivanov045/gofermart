@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	productsTableName    = "models"
+	productsTableName    = "products"
 	ordersTableName      = "orders"
 	ordersQueueTableName = "orders_queue"
 )
@@ -79,28 +79,32 @@ func (s *dbStorage) UpdateOrderStatus(ctx context.Context, id string, orderStatu
 	return nil
 }
 
-func (s *dbStorage) GetProduct(ctx context.Context, name string) (*models.Product, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT reward, reward_type  FROM `+productsTableName+` WHERE name = $1`, name)
-	err := row.Err()
+func (s *dbStorage) MatchProducts(ctx context.Context, productDescription string) ([]models.Product, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT matchText, reward, reward_type FROM `+productsTableName+` WHERE $1 LIKE concat('%',matchText,'%');`, productDescription)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	var reward float64
-	var rewardType models.RewardType
-	err = row.Scan(&reward, &rewardType)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrProductNotFound
-	}
-	if err != nil {
-		return nil, err
+	products := make([]models.Product, 0)
+	for rows.Next() {
+		var matchText string
+		var reward float64
+		var rewardType models.RewardType
+		err = rows.Scan(&matchText, &reward, &rewardType)
+		products = append(products, models.Product{Match: matchText, Reward: reward, RewardType: rewardType})
+
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return &models.Product{Match: name, Reward: reward, RewardType: rewardType}, nil
+	return products, nil
 }
 
 func (s *dbStorage) RegisterProduct(ctx context.Context, product models.Product) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO `+productsTableName+` (name, reward, reward_type) VALUES ($1, $2, $3);`, product.Match, product.Reward, product.RewardType)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO `+productsTableName+` (matchText, reward, reward_type) VALUES ($1, $2, $3);`,
+		product.Match, product.Reward, product.RewardType)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == ErrCodeDuplicateKeyViolatesUniqueConstraint {
@@ -165,7 +169,7 @@ func (s *dbStorage) createProductsTable(ctx context.Context) error {
 
 	_, err = s.db.ExecContext(ctx, `
 		CREATE TABLE `+productsTableName+` (
-			name varchar(255) NOT NULL UNIQUE,
+			matchText varchar(255) NOT NULL UNIQUE,
 			reward float8,
 			reward_type int
 	);`)

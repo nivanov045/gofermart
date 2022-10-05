@@ -81,7 +81,6 @@ func (s *Service) GetOrderReward(ctx context.Context, id string) ([]byte, error)
 		return nil, err
 	}
 
-	log.Info(fmt.Sprintf("Reward status. %v: %v %v", id, models.OrderStatusText(orderStatus.Status), orderStatus.Accrual))
 	var orderReward models.OrderReward
 	if orderStatus.Status == models.OrderStatusProcessed {
 		orderReward = models.OrderReward{ID: id, Accrual: orderStatus.Accrual, Status: models.OrderStatusText(orderStatus.Status)}
