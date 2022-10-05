@@ -7,8 +7,18 @@ import (
 	"github.com/rs/zerolog/pkgerrors"
 )
 
-func Init() {
+type Level zerolog.Level
+
+const (
+	ErrorLevel Level = Level(zerolog.ErrorLevel)
+	WarnLevel  Level = Level(zerolog.WarnLevel)
+	InfoLevel  Level = Level(zerolog.InfoLevel)
+	DebugLevel Level = Level(zerolog.DebugLevel)
+)
+
+func Init(level Level) {
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
+	zerolog.SetGlobalLevel(zerolog.Level(level))
 }
 
 func Panic(err error) {

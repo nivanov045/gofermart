@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	log.Init()
+	log.Init(log.InfoLevel)
 
 	cfg, err := server.NewConfig()
 	if err != nil {

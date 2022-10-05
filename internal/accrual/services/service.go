@@ -48,7 +48,7 @@ func (s *Service) Process(ctx context.Context) {
 		workerChs = append(workerChs, workerCh)
 	}
 
-	// TODO: Mode to separate func
+	// TODO: Move to separate func
 	for resultAccrual := range fanIn(workerChs...) {
 		if resultAccrual.err != nil {
 			// TODO: What we have to do with failed computation? Set to invalid status?
@@ -128,8 +128,11 @@ func (s *Service) RegisterProduct(ctx context.Context, request []byte) error {
 	var product models.Product
 	err := json.Unmarshal(request, &product)
 	if err != nil {
-		var errUnknownType models.UnknownTypeError
+		var errUnknownType *models.UnknownRewardTypeError
 		if errors.As(err, &errUnknownType) {
+			return ErrIncorrectFormat
+		}
+		if errors.Is(err, models.ErrIncorrectRewardValue) {
 			return ErrIncorrectFormat
 		}
 		return err
@@ -143,6 +146,7 @@ func (s *Service) RegisterProduct(ctx context.Context, request []byte) error {
 	if err != nil {
 		return err
 	}
+	log.Debug(fmt.Sprintf("Product '%v' '%v'('%v') registered", product.Match, product.Reward, product.RewardType))
 
 	return nil
 }

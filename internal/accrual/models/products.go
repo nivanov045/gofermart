@@ -41,6 +41,10 @@ func (p *Product) UnmarshalJSON(data []byte) error {
 		p.RewardType = RewardTypeUnknown
 	}
 
+	if p.RewardType == RewardTypePercent && p.Reward < 0.0 {
+		return ErrIncorrectRewardValue
+	}
+
 	if p.RewardType == RewardTypeUnknown {
 		return NewUnknownTypeError(p.RewardType, aliasValue.RewardType)
 	}
