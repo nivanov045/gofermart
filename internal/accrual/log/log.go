@@ -1,6 +1,7 @@
 package log
 
 import (
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/rs/zerolog/pkgerrors"
@@ -11,16 +12,16 @@ func Init() {
 }
 
 func Panic(err error) {
-	log.Error().Stack().Err(err).Send()
+	log.Error().Stack().Err(errors.Wrap(err, "from error")).Send()
 	panic(err)
 }
 
 func Error(err error) {
-	log.Error().Stack().Err(err).Send()
+	log.Error().Stack().Err(errors.Wrap(err, "from error")).Send()
 }
 
 func Warn(err error) {
-	log.Warn().Stack().Err(err).Send()
+	log.Warn().Stack().Err(errors.Wrap(err, "from error")).Send()
 }
 
 func Debug(msg string) {
