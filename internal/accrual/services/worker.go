@@ -93,10 +93,8 @@ func (s *Service) computeAccrual(ctx context.Context, order models.OrderList) ac
 		switch product.RewardType {
 		case models.RewardTypePoints:
 			accrual += product.Reward
-			break
 		case models.RewardTypePercent:
 			accrual += int(0.01 * float64(product.Reward) * float64(orderProduct.Price))
-			break
 		default:
 			return accrualResult{id: order.ID, accrual: accrual, err: fmt.Errorf("unknown reward type: '%v'", product.RewardType)}
 		}

@@ -35,10 +35,8 @@ func (p *Product) UnmarshalJSON(data []byte) error {
 	switch aliasValue.RewardType {
 	case "%":
 		p.RewardType = RewardTypePercent
-		break
 	case "pt":
 		p.RewardType = RewardTypePoints
-		break
 	default:
 		p.RewardType = RewardTypeUnknown
 	}
@@ -57,10 +55,8 @@ func (p *Product) MarshalJSON() ([]byte, error) {
 	switch p.RewardType {
 	case RewardTypePercent:
 		rewardType = "%"
-		break
 	case RewardTypePoints:
 		rewardType = "pt"
-		break
 	default:
 		return nil, NewUnknownTypeError(p.RewardType, "")
 	}
