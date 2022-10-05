@@ -79,8 +79,10 @@ func (s *dbStorage) UpdateOrderStatus(ctx context.Context, id string, orderStatu
 	return nil
 }
 
-func (s *dbStorage) MatchProducts(ctx context.Context, productDescription string) ([]models.Product, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT matchText, reward, reward_type FROM `+productsTableName+` WHERE $1 LIKE concat('%',matchText,'%');`, productDescription)
+func (s *dbStorage) MatchProducts(ctx context.Context, description string) ([]models.Product, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT matchText, reward, reward_type FROM `+productsTableName+` WHERE $1 LIKE concat('%',matchText,'%');`,
+		description)
 	if err != nil {
 		return nil, err
 	}
@@ -108,8 +110,10 @@ func (s *dbStorage) MatchProducts(ctx context.Context, productDescription string
 }
 
 func (s *dbStorage) RegisterProduct(ctx context.Context, product models.Product) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO `+productsTableName+` (matchText, reward, reward_type) VALUES ($1, $2, $3);`,
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO `+productsTableName+` (matchText, reward, reward_type) VALUES ($1, $2, $3);`,
 		product.Match, product.Reward, product.RewardType)
+
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == ErrCodeDuplicateKeyViolatesUniqueConstraint {

@@ -38,7 +38,7 @@ func main() {
 	service := services.NewService(storage, queue, runtime.NumCPU())
 	wg.Add(1)
 	go func() {
-		service.Process(ctx)
+		service.Run(ctx)
 		wg.Done()
 	}()
 

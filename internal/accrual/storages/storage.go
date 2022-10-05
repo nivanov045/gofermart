@@ -10,7 +10,7 @@ type Storage interface {
 	GetOrderStatus(ctx context.Context, id string) (models.OrderStatus, error)
 	UpdateOrderStatus(ctx context.Context, id string, orderStatus models.OrderStatus) error
 
-	MatchProducts(ctx context.Context, productDescription string) ([]models.Product, error)
+	MatchProducts(ctx context.Context, description string) ([]models.Product, error)
 	RegisterProduct(ctx context.Context, product models.Product) error
 }
 

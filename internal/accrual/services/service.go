@@ -40,7 +40,7 @@ func NewService(storage storages.Storage, queue storages.OrderQueue, maxWorker i
 	}
 }
 
-func (s *Service) Process(ctx context.Context) {
+func (s *Service) Run(ctx context.Context) {
 	fanOutChs := fanOut(s.orderQueueCh, s.maxWorker)
 
 	workerChs := make([]chan accrualResult, 0, s.maxWorker)
@@ -50,31 +50,7 @@ func (s *Service) Process(ctx context.Context) {
 		workerChs = append(workerChs, workerCh)
 	}
 
-	// TODO: Move to separate func
-	for resultAccrual := range fanIn(workerChs...) {
-		if resultAccrual.err != nil {
-			// TODO: What we have to do with failed computation? Set to invalid status?
-			log.Error(resultAccrual.err)
-			continue
-		}
-
-		err := s.storage.UpdateOrderStatus(ctx, resultAccrual.id, models.OrderStatus{Status: models.OrderStatusProcessed, Accrual: resultAccrual.accrual})
-		if err != nil {
-			log.Error(err)
-
-			err := s.storage.UpdateOrderStatus(ctx, resultAccrual.id, models.OrderStatus{Status: models.OrderStatusRegistered, Accrual: 0})
-			if err != nil {
-				log.Error(err)
-			}
-			continue
-		}
-		log.Debug(fmt.Sprintf("Order '%v' processed", resultAccrual.id))
-
-		err = s.queue.RemoveOrder(ctx, resultAccrual.id)
-		if err != nil {
-			log.Error(err)
-		}
-	}
+	s.process(ctx, workerChs)
 }
 
 func (s *Service) GetOrderReward(ctx context.Context, id string) ([]byte, error) {

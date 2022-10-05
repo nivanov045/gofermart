@@ -99,3 +99,29 @@ func (s *Service) computeAccrual(ctx context.Context, order models.OrderList) ac
 
 	return accrualResult{id: order.ID, accrual: accrual, err: nil}
 }
+
+func (s *Service) process(ctx context.Context, workerChs []chan accrualResult) {
+	for resultAccrual := range fanIn(workerChs...) {
+		if resultAccrual.err != nil {
+			log.Error(resultAccrual.err)
+			continue
+		}
+
+		err := s.storage.UpdateOrderStatus(ctx, resultAccrual.id, models.OrderStatus{Status: models.OrderStatusProcessed, Accrual: resultAccrual.accrual})
+		if err != nil {
+			log.Error(err)
+
+			err := s.storage.UpdateOrderStatus(ctx, resultAccrual.id, models.OrderStatus{Status: models.OrderStatusRegistered, Accrual: 0})
+			if err != nil {
+				log.Error(err)
+			}
+			continue
+		}
+		log.Debug(fmt.Sprintf("Order '%v' processed", resultAccrual.id))
+
+		err = s.queue.RemoveOrder(ctx, resultAccrual.id)
+		if err != nil {
+			log.Error(err)
+		}
+	}
+}
