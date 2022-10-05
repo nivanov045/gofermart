@@ -55,7 +55,7 @@ func (s *dbStorage) GetOrderStatus(ctx context.Context, id string) (models.Order
 		return models.OrderStatus{}, err
 	}
 
-	var accrual int
+	var accrual float64
 	var status models.OrderStatusCode
 	err = row.Scan(&accrual, &status)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -188,7 +188,7 @@ func (s *dbStorage) createOrdersTable(ctx context.Context) error {
 	_, err = s.db.ExecContext(ctx, `
 		CREATE TABLE `+ordersTableName+` (
 			id varchar(255) NOT NULL UNIQUE,
-			accrual bigint,
+			accrual float8,
 			status int
 	);`)
 

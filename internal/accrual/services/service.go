@@ -23,7 +23,7 @@ type Service struct {
 
 type accrualResult struct {
 	id      string
-	accrual int
+	accrual float64
 	err     error
 }
 

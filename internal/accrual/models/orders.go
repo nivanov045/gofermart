@@ -26,13 +26,13 @@ func OrderStatusText(status OrderStatusCode) string {
 
 type OrderStatus struct {
 	Status  OrderStatusCode
-	Accrual int
+	Accrual float64
 }
 
 type OrderReward struct {
-	ID      string `json:"order"`
-	Status  string `json:"status"`
-	Accrual int    `json:"accrual,omitempty"`
+	ID      string  `json:"order"`
+	Status  string  `json:"status"`
+	Accrual float64 `json:"accrual,omitempty"`
 }
 
 type OrderProduct struct {
