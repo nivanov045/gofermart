@@ -36,8 +36,8 @@ type OrderReward struct {
 }
 
 type OrderProduct struct {
-	Description string `json:"description"`
-	Price       int    `json:"price"`
+	Description string  `json:"description"`
+	Price       float64 `json:"price"`
 }
 
 type OrderList struct {
