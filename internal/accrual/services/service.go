@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/nivanov045/gofermart/internal/accrual/log"
 	"github.com/nivanov045/gofermart/internal/accrual/models"
 	"github.com/nivanov045/gofermart/internal/accrual/storages"
+	"github.com/nivanov045/gofermart/internal/checksums"
 )
 
 type Service struct {
@@ -98,8 +100,9 @@ func (s *Service) RegisterOrder(ctx context.Context, request []byte) error {
 		return err
 	}
 
-	// TODO: Check with Luhn algorithm
 	if order.ID == "" {
+		return ErrIncorrectFormat
+	} else if id, err := strconv.ParseInt(order.ID, 10, 64); err != nil || !checksums.Luhn(id) {
 		return ErrIncorrectFormat
 	}
 

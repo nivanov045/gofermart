@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nivanov045/gofermart/internal/checksums"
 	"github.com/nivanov045/gofermart/internal/order"
 	"github.com/nivanov045/gofermart/internal/withdraw"
 )
@@ -67,25 +68,6 @@ func (s *service) RunListenToAccrual() {
 	}
 }
 
-func checksum(number int64) bool {
-	var luhn int64
-
-	for i := 0; number > 0; i++ {
-		cur := number % 10
-
-		if (i+1)%2 == 0 {
-			cur = cur * 2
-			if cur > 9 {
-				cur = cur%10 + cur/10
-			}
-		}
-
-		luhn += cur
-		number = number / 10
-	}
-	return luhn%10 == 0
-}
-
 func (s *service) checkOrderNumber(orderNumber string) bool {
 	if s.isDebug {
 		return true
@@ -94,7 +76,7 @@ func (s *service) checkOrderNumber(orderNumber string) bool {
 	if err != nil {
 		return false
 	}
-	return checksum(n)
+	return checksums.Luhn(n)
 }
 
 // AddOrder returns true if order didn't exist before call, false if existed

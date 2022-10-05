@@ -99,6 +99,11 @@ func (s *dbStorage) MatchProducts(ctx context.Context, productDescription string
 		}
 	}
 
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+
 	return products, nil
 }
 
