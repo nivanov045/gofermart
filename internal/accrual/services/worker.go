@@ -80,25 +80,25 @@ func (s *Service) newWorker(ctx context.Context, in chan models.OrderList, out c
 }
 
 func (s *Service) computeAccrual(ctx context.Context, order models.OrderList) accrualResult {
-	accrual := 0
+	accrual := 0.0
 	for _, orderProduct := range order.Goods {
 		product, err := s.storage.GetProduct(ctx, orderProduct.Description)
 		if errors.Is(err, storages.ErrProductNotFound) {
 			continue
 		}
 		if err != nil {
-			return accrualResult{id: order.ID, accrual: accrual, err: err}
+			return accrualResult{id: order.ID, accrual: int(accrual), err: err}
 		}
 
 		switch product.RewardType {
 		case models.RewardTypePoints:
 			accrual += product.Reward
 		case models.RewardTypePercent:
-			accrual += int(0.01 * float64(product.Reward) * float64(orderProduct.Price))
+			accrual += 0.01 * product.Reward * float64(orderProduct.Price)
 		default:
-			return accrualResult{id: order.ID, accrual: accrual, err: fmt.Errorf("unknown reward type: '%v'", product.RewardType)}
+			return accrualResult{id: order.ID, accrual: 0, err: fmt.Errorf("unknown reward type: '%v'", product.RewardType)}
 		}
 	}
 
-	return accrualResult{id: order.ID, accrual: accrual, err: nil}
+	return accrualResult{id: order.ID, accrual: int(accrual), err: nil}
 }

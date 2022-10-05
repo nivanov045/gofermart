@@ -17,6 +17,10 @@ const (
 	ordersQueueTableName = "orders_queue"
 )
 
+const (
+	ErrCodeDuplicateKeyViolatesUniqueConstraint = "23505"
+)
+
 type dbStorage struct {
 	db *sql.DB
 }
@@ -82,7 +86,7 @@ func (s *dbStorage) GetProduct(ctx context.Context, name string) (*models.Produc
 		return nil, err
 	}
 
-	var reward int
+	var reward float64
 	var rewardType models.RewardType
 	err = row.Scan(&reward, &rewardType)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -95,11 +99,11 @@ func (s *dbStorage) GetProduct(ctx context.Context, name string) (*models.Produc
 	return &models.Product{Match: name, Reward: reward, RewardType: rewardType}, nil
 }
 
-func (s *dbStorage) RegisterProduct(ctx context.Context, name string, reward int, rewardType models.RewardType) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO `+productsTableName+` (name, reward, reward_type) VALUES ($1, $2, $3);`, name, reward, rewardType)
+func (s *dbStorage) RegisterProduct(ctx context.Context, product models.Product) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO `+productsTableName+` (name, reward, reward_type) VALUES ($1, $2, $3);`, product.Match, product.Reward, product.RewardType)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if errors.As(err, &pgErr) && pgErr.Code == ErrCodeDuplicateKeyViolatesUniqueConstraint {
 			return ErrProductAlreadyRegistered
 		}
 		return err
@@ -162,7 +166,7 @@ func (s *dbStorage) createProductsTable(ctx context.Context) error {
 	_, err = s.db.ExecContext(ctx, `
 		CREATE TABLE `+productsTableName+` (
 			name varchar(255) NOT NULL UNIQUE,
-			reward bigint,
+			reward float8,
 			reward_type int
 	);`)
 

@@ -14,7 +14,7 @@ const (
 
 type Product struct {
 	Match      string     `json:"match"`
-	Reward     int        `json:"reward"`
+	Reward     float64    `json:"reward"`
 	RewardType RewardType `json:"reward_type"`
 }
 

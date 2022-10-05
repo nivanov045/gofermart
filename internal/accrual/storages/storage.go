@@ -11,7 +11,7 @@ type Storage interface {
 	UpdateOrderStatus(ctx context.Context, id string, orderStatus models.OrderStatus) error
 
 	GetProduct(ctx context.Context, name string) (*models.Product, error)
-	RegisterProduct(ctx context.Context, name string, reward int, rewardType models.RewardType) error
+	RegisterProduct(ctx context.Context, product models.Product) error
 }
 
 type OrderQueue interface {

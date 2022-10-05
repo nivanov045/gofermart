@@ -139,7 +139,7 @@ func (s *Service) RegisterProduct(ctx context.Context, request []byte) error {
 		return ErrIncorrectFormat
 	}
 
-	err = s.storage.RegisterProduct(ctx, product.Match, product.Reward, product.RewardType)
+	err = s.storage.RegisterProduct(ctx, product)
 	if err != nil {
 		return err
 	}
