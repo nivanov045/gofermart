@@ -71,7 +71,6 @@ func (s *Service) newWorker(ctx context.Context, in chan models.OrderList, out c
 			}
 
 			accrual := s.computeAccrual(ctx, order)
-			//time.Sleep(time.Second * 60) // TODO: Remove
 			out <- accrual
 		}
 	}()

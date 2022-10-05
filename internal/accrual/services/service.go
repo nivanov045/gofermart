@@ -50,6 +50,8 @@ func (s *Service) Run(ctx context.Context) {
 		workerChs = append(workerChs, workerCh)
 	}
 
+	// TODO: Load queue from DB
+
 	s.process(ctx, workerChs)
 }
 
