@@ -34,6 +34,10 @@ func Warn(err error) {
 	log.Warn().Stack().Err(errors.Wrap(err, "from error")).Send()
 }
 
+func Info(msg string) {
+	log.Info().Stack().Msg(msg)
+}
+
 func Debug(msg string) {
 	log.Debug().Stack().Msg(msg)
 }
