@@ -25,8 +25,8 @@ func NewConfig() (*Config, error) {
 func parseFlags() *Config {
 	var cfg Config
 
-	flag.StringVar(&cfg.Address, "a", "", "Address and port for server")
-	flag.StringVar(&cfg.DatabaseURI, "d", "", "Database address")
+	flag.StringVar(&cfg.Address, "a", "", "address and port for server")
+	flag.StringVar(&cfg.DatabaseURI, "d", "", "database address")
 	flag.Parse()
 
 	return &cfg

@@ -16,9 +16,7 @@ type Server struct {
 }
 
 func NewServer(service *services.Service) *Server {
-	a := Server{service: service}
-
-	return &a
+	return &Server{service: service}
 }
 
 func (a *Server) Run(address string) error {
@@ -85,14 +83,10 @@ func (a *Server) registerProduct(w http.ResponseWriter, r *http.Request) {
 
 		if errors.Is(err, services.ErrProductAlreadyRegistered) {
 			http.Error(w, http.StatusText(http.StatusConflict), http.StatusConflict)
-			return
-		}
-		if errors.Is(err, services.ErrIncorrectFormat) {
+		} else if errors.Is(err, services.ErrIncorrectFormat) {
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-			return
+		} else {
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
-		log.Error(err)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
 	}
 }
