@@ -125,23 +125,28 @@ func (s *dbStorage) RegisterProduct(ctx context.Context, product models.Product)
 	return nil
 }
 
-func (s *dbStorage) GetOrder(ctx context.Context) ([]byte, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT info FROM `+ordersTableName+` LIMIT 1;`)
-	err := row.Err()
+func (s *dbStorage) GetAllOrders(ctx context.Context) ([][]byte, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT info FROM `+ordersQueueTableName+`;`)
 	if err != nil {
 		return nil, err
 	}
 
-	var orderInfo []byte
-	err = row.Scan(&orderInfo)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrOrderNotFound
+	orderInfos := make([][]byte, 0)
+	for rows.Next() {
+		var orderInfo []byte
+		err = rows.Scan(&orderInfo)
+		if err != nil {
+			return nil, err
+		}
+		orderInfos = append(orderInfos, orderInfo)
 	}
+
+	err = rows.Err()
 	if err != nil {
 		return nil, err
 	}
 
-	return orderInfo, nil
+	return orderInfos, nil
 }
 
 func (s *dbStorage) RemoveOrder(ctx context.Context, id string) error {

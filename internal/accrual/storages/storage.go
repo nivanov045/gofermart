@@ -15,7 +15,7 @@ type Storage interface {
 }
 
 type OrderQueue interface {
-	GetOrder(ctx context.Context) ([]byte, error)
+	GetAllOrders(ctx context.Context) ([][]byte, error)
 	RemoveOrder(ctx context.Context, id string) error
 	RegisterOrder(ctx context.Context, id string, orderInfo []byte) error
 }

@@ -50,7 +50,10 @@ func (s *Service) Run(ctx context.Context) {
 		workerChs = append(workerChs, workerCh)
 	}
 
-	// TODO: Load queue from DB
+	err := s.LoadQueue(ctx)
+	if err != nil {
+		log.Error(err)
+	}
 
 	s.process(ctx, workerChs)
 }
@@ -128,6 +131,27 @@ func (s *Service) RegisterProduct(ctx context.Context, request []byte) error {
 		return err
 	}
 	log.Debug(fmt.Sprintf("Product '%v' '%v'('%v') registered", product.Match, product.Reward, product.RewardType))
+
+	return nil
+}
+
+func (s *Service) LoadQueue(ctx context.Context) error {
+	orderInfos, err := s.queue.GetAllOrders(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, orderInfo := range orderInfos {
+		var order models.OrderList
+		err := json.Unmarshal(orderInfo, &order)
+		if err != nil {
+			return err
+		}
+
+		go func() {
+			s.orderQueueCh <- order
+		}()
+	}
 
 	return nil
 }
