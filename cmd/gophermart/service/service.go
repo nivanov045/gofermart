@@ -37,17 +37,17 @@ type service struct {
 }
 
 func New(storage Storage, accrualSystem AccrualSystem, isDebug bool) *service {
-	res := &service{
+	resultService := &service{
 		storage:           storage,
 		isDebug:           isDebug,
 		accrualSystem:     accrualSystem,
 		toAccrualSystem:   make(chan string),
 		fromAccrualSystem: make(chan order.Order),
 	}
-	res.accrualSystem.SetChannelToResponseToService(res.fromAccrualSystem)
-	go res.RunListenToAccrual()
-	go res.accrualSystem.RunListenToService(res.toAccrualSystem)
-	return res
+	resultService.accrualSystem.SetChannelToResponseToService(resultService.fromAccrualSystem)
+	go resultService.RunListenToAccrual()
+	go resultService.accrualSystem.RunListenToService(resultService.toAccrualSystem)
+	return resultService
 }
 
 func (s *service) RunListenToAccrual() {
@@ -205,16 +205,16 @@ func (s *service) GetWithdraws(login string) ([]byte, error) {
 	if len(withdraws) == 0 {
 		return nil, errors.New("no withdraws")
 	}
-	var res []withdraw.Interface
+	var resutlWithdrawInterface []withdraw.Interface
 	for _, w := range withdraws {
 		el := withdraw.Interface{
 			Order:       w.Order,
 			Sum:         float64(w.Sum) / 100,
 			ProcessedAt: w.ProcessedAt,
 		}
-		res = append(res, el)
+		resutlWithdrawInterface = append(resutlWithdrawInterface, el)
 	}
-	marshal, err := json.Marshal(res)
+	marshal, err := json.Marshal(resutlWithdrawInterface)
 	if err != nil {
 		return nil, err
 	}

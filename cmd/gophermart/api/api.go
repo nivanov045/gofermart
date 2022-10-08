@@ -43,13 +43,15 @@ func (a *api) Run(address string) error {
 	r.Use(middleware.Recoverer)
 
 	// Specificated
-	r.Post("/api/user/register", a.registerHandler)
-	r.Post("/api/user/login", a.loginHandler)
-	r.Post("/api/user/orders", a.addOrderHandler)
-	r.Get("/api/user/orders", a.getOrdersHandler)
-	r.Get("/api/user/balance", a.getBalanceHandler)
-	r.Post("/api/user/balance/withdraw", a.makeWithdrawHandler)
-	r.Get("/api/user/withdrawals", a.getWithdrawsHandler)
+	r.Route("/api/user/", func(r chi.Router) {
+		r.Post("/register", a.registerHandler)
+		r.Post("/login", a.loginHandler)
+		r.Post("/orders", a.addOrderHandler)
+		r.Get("/orders", a.getOrdersHandler)
+		r.Get("/balance", a.getBalanceHandler)
+		r.Post("/balance/withdraw", a.makeWithdrawHandler)
+		r.Get("/withdrawals", a.getWithdrawsHandler)
+	})
 
 	// Not specificated
 	r.Post("/api/user/logout", a.logoutHandler)
@@ -388,7 +390,7 @@ func (a *api) getWithdrawsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type API interface {
-	Run(string2 string) error
+	Run(serviceAddress string) error
 }
 
 var _ API = &api{}

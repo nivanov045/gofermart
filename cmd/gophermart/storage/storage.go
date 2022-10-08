@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"runtime"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -50,7 +51,7 @@ func (c *column) toString() string {
 
 func New(databasePath string) (*storage, error) {
 	log.Println("storage::New::info: started")
-	var res = &storage{
+	var resultStorage = &storage{
 		databasePath: databasePath,
 		tables: []table{
 			{
@@ -91,31 +92,31 @@ func New(databasePath string) (*storage, error) {
 	}
 
 	var err error
-	res.db, err = sql.Open("postgres", databasePath)
+	resultStorage.db, err = sql.Open("postgres", databasePath)
 	if err != nil {
 		log.Println("storage::New::error: in db open:", err)
 		return nil, errors.New(`can't create database'`)
 	}
-	runtime.SetFinalizer(res, func(s *storage) {
+	runtime.SetFinalizer(resultStorage, func(s *storage) {
 		log.Println("storage::New::info: finalizer started")
 		defer s.db.Close()
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	for _, table := range res.tables {
-		var value bool
-		row := res.db.QueryRowContext(ctx,
+	for _, table := range resultStorage.tables {
+		var isTableExists bool
+		row := resultStorage.db.QueryRowContext(ctx,
 			`SELECT EXISTS (
 			SELECT FROM information_schema.tables 
 			WHERE  table_name = $1);`, table.name)
-		err = row.Scan(&value)
+		err = row.Scan(&isTableExists)
 		if err != nil {
 			log.Println("storage::New::error: in table check:", err)
 			return nil, errors.New(`can't create database'`)
 		}
-		if !value {
-			_, err = res.db.Exec(constructMakeTableQuery(table))
+		if !isTableExists {
+			_, err = resultStorage.db.Exec(constructMakeTableQuery(table))
 			if err != nil {
 				log.Println("storage::New::error: in table creation:", err)
 				return nil, errors.New(`can't create database'`)
@@ -123,30 +124,36 @@ func New(databasePath string) (*storage, error) {
 		} else {
 			tableIsOk := true
 			for _, c := range table.columns {
-				var value bool
-				row := res.db.QueryRowContext(ctx,
+				var isColumnInTable bool
+				row := resultStorage.db.QueryRowContext(ctx,
 					`SELECT EXISTS (
     				SELECT column_name FROM information_schema.columns
     				WHERE table_name=$1 and column_name=$2);`, table.name, c.name)
-				err = row.Scan(&value)
+				err = row.Scan(&isColumnInTable)
 				if err != nil {
 					log.Println("storage::New::error: in columns check:", err)
 					return nil, errors.New(`can't create database'`)
 				}
-				if !value {
+				if !isColumnInTable {
 					tableIsOk = false
 					break
 				}
 			}
 
 			if !tableIsOk {
-				log.Println("storage::New::info: table is wrong, drop and create")
-				_, err = res.db.Exec(`DROP TABLE $1;`, table.name)
+				log.Println("storage::New::info: table is wrong, clone, drop and create new")
+				_, err = resultStorage.db.Exec(`CREATE TABLE dupe_$1_$2 AS (SELECT * FROM $1);`, table.name,
+					time.Now().String())
+				if err != nil {
+					log.Println("storage::New::error: in table duplication:", err)
+					return nil, errors.New(`can't create database'`)
+				}
+				_, err = resultStorage.db.Exec(`DROP TABLE $1;`, table.name)
 				if err != nil {
 					log.Println("storage::New::error: in table drop:", err)
 					return nil, errors.New(`can't create database'`)
 				}
-				_, err = res.db.Exec(constructMakeTableQuery(table))
+				_, err = resultStorage.db.Exec(constructMakeTableQuery(table))
 				if err != nil {
 					log.Println("storage::New::error: in table creation:", err)
 					return nil, errors.New(`can't create database'`)
@@ -156,23 +163,22 @@ func New(databasePath string) (*storage, error) {
 			}
 		}
 	}
-	return res, nil
+	return resultStorage, nil
 }
 
 func constructMakeTableQuery(t table) string {
-	query := `CREATE TABLE `
-	query += t.name
+	var query strings.Builder
+	query.WriteString(`CREATE TABLE ` + t.name)
 	if len(t.columns) == 0 {
-		return query + `;`
+		query.WriteString(`;`)
+		return query.String()
 	}
-	query += ` (` + t.columns[0].toString()
-	if len(t.columns) == 1 {
-		return query + `);`
-	}
+	query.WriteString(` (` + t.columns[0].toString())
 	for i := 1; i < len(t.columns); i++ {
-		query += `, ` + t.columns[i].toString()
+		query.WriteString(`, ` + t.columns[i].toString())
 	}
-	return query + `);`
+	query.WriteString(`);`)
+	return query.String()
 }
 
 func (s *storage) FindOrderByUser(login string, number string) (bool, error) {
@@ -218,17 +224,17 @@ func (s *storage) AddOrder(login string, number string) error {
 func (s *storage) GetOrders(login string) ([]order.Order, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var res []order.Order
+	var resultOrders []order.Order
 
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT order_num, created_at, status, accrual FROM orders WHERE user_login=$1;`, login)
 	if err != nil {
 		log.Println("storage::GetOrders::info: in QueryContext:", err)
-		return res, err
+		return resultOrders, err
 	}
 	if rows.Err() != nil {
 		log.Println("storage::GetOrders::error: in rows:", err)
-		return res, err
+		return resultOrders, err
 	}
 	for rows.Next() {
 		var orderNum, status string
@@ -248,9 +254,9 @@ func (s *storage) GetOrders(login string) ([]order.Order, error) {
 		if status == order.ProcessingTypeProcessed {
 			val.Accrual = accrual.Int64
 		}
-		res = append(res, val)
+		resultOrders = append(resultOrders, val)
 	}
-	return res, nil
+	return resultOrders, nil
 }
 
 func (s *storage) UpdateOrder(orderData order.Order) error {
@@ -278,17 +284,17 @@ func (s *storage) MakeWithdraw(login string, order string, sum int64) error {
 func (s *storage) GetWithdraws(login string) ([]withdraw.Withdraw, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var res []withdraw.Withdraw
+	var resultWithdraws []withdraw.Withdraw
 
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT created_at, sum, order_num FROM withdraws WHERE user_login=$1;`, login)
 	if err != nil {
 		log.Println("storage::GetWithdraws::info: in QueryContext:", err)
-		return res, err
+		return resultWithdraws, err
 	}
 	if rows.Err() != nil {
 		log.Println("storage::GetWithdraws::error: in rows:", err)
-		return res, err
+		return resultWithdraws, err
 	}
 	for rows.Next() {
 		var orderNum string
@@ -299,13 +305,13 @@ func (s *storage) GetWithdraws(login string) ([]withdraw.Withdraw, error) {
 			log.Println("storage::GetWithdraws::info: in Scan:", err)
 			continue
 		}
-		res = append(res, withdraw.Withdraw{
+		resultWithdraws = append(resultWithdraws, withdraw.Withdraw{
 			Order:       orderNum,
 			Sum:         sum,
 			ProcessedAt: creationTime,
 		})
 	}
-	return res, nil
+	return resultWithdraws, nil
 }
 
 func (s *storage) AddUser(login string, passwordHash string) error {
@@ -352,15 +358,15 @@ func (s *storage) GetSessionInfo(sessionToken string) (string, time.Time, error)
 func (s *storage) CheckPassword(login string, passwordHash string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var value bool
+	var isPasswordHashCorrect bool
 	row := s.db.QueryRowContext(ctx,
 		`SELECT EXISTS (
     	SELECT FROM users WHERE user_login=$1 AND password_hash=$2);`, login, passwordHash)
-	err := row.Scan(&value)
+	err := row.Scan(&isPasswordHashCorrect)
 	if err != nil {
 		return false, err
 	}
-	return value, nil
+	return isPasswordHashCorrect, nil
 }
 
 func (s *storage) RemoveSession(sessionToken string) error {

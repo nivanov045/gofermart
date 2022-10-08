@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/nivanov045/gofermart/internal/order"
@@ -19,41 +18,36 @@ type accrualsystem struct {
 	databasePath     string
 	isDebug          bool
 	channelToService chan<- order.Order
-	ordersToProcess  []string
-	mutexToOrders    sync.Mutex
+	ordersToProcess  chan string
 }
 
 func New(databasePath string, isDebug bool) (*accrualsystem, error) {
-	res := &accrualsystem{
+	resultAccrualSystem := &accrualsystem{
 		databasePath:    databasePath,
 		isDebug:         isDebug,
-		ordersToProcess: []string{},
+		ordersToProcess: make(chan string),
 	}
-	go res.processOrders()
-	return res, nil
+	go resultAccrualSystem.processOrders()
+	return resultAccrualSystem, nil
 }
 
 func (a *accrualsystem) processOrders() {
+	ctx := context.Background()
 	for {
-		a.mutexToOrders.Lock()
-		if len(a.ordersToProcess) > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case ord := <-a.ordersToProcess:
 			log.Println("accrual::processOrders::info: added")
-			go a.getAccrual(a.ordersToProcess[0])
-			a.ordersToProcess = a.ordersToProcess[1:]
+			go a.getAccrual(ord)
+		default:
+			time.Sleep(100 * time.Millisecond)
 		}
-		a.mutexToOrders.Unlock()
-		time.Sleep(100 * time.Millisecond)
 	}
 }
 
 func (a *accrualsystem) SetChannelToResponseToService(ch chan order.Order) {
 	a.channelToService = ch
-}
-
-func (a *accrualsystem) addToOrders(orderNumber string) {
-	a.mutexToOrders.Lock()
-	a.ordersToProcess = append(a.ordersToProcess, orderNumber)
-	a.mutexToOrders.Unlock()
 }
 
 func (a *accrualsystem) RunListenToService(channelFromService <-chan string) {
@@ -65,7 +59,7 @@ func (a *accrualsystem) RunListenToService(channelFromService <-chan string) {
 			return
 		case ord := <-channelFromService:
 			log.Println("accrual::RunListenToService::info: received value")
-			a.addToOrders(ord)
+			a.ordersToProcess <- ord
 		default:
 			time.Sleep(1 * time.Second)
 		}
@@ -74,27 +68,27 @@ func (a *accrualsystem) RunListenToService(channelFromService <-chan string) {
 
 func (a *accrualsystem) getAccrual(orderNumber string) {
 	if a.isDebug {
-		var res order.Order
-		res.Number = orderNumber
+		var resultOrder order.Order
+		resultOrder.Number = orderNumber
 		random := rand.Intn(10)
 		if random < 2 {
 			log.Println("accrual::getAccrual::info: NEW:", orderNumber)
 			time.Sleep(1 * time.Second)
-			a.addToOrders(orderNumber)
+			a.ordersToProcess <- orderNumber
 			return
 		}
 		if random < 3 {
 			log.Println("accrual::getAccrual::info: PROCESSING:", orderNumber)
-			res.Status = order.ProcessingTypeProcessing
+			resultOrder.Status = order.ProcessingTypeProcessing
 		} else if random < 4 {
 			log.Println("accrual::getAccrual::info: INVALID:", orderNumber)
-			res.Status = order.ProcessingTypeInvalid
+			resultOrder.Status = order.ProcessingTypeInvalid
 		} else {
 			log.Println("accrual::getAccrual::info: PROCESSED:", orderNumber)
-			res.Status = order.ProcessingTypeProcessed
-			res.Accrual = int64(random * 1000)
+			resultOrder.Status = order.ProcessingTypeProcessed
+			resultOrder.Accrual = int64(random * 1000)
 		}
-		a.channelToService <- res
+		a.channelToService <- resultOrder
 		return
 	}
 
@@ -103,16 +97,14 @@ func (a *accrualsystem) getAccrual(orderNumber string) {
 	request, err := http.NewRequest(http.MethodGet, requestURL, bytes.NewBuffer([]byte(orderNumber)))
 	if err != nil {
 		log.Println("accrual::getAccrual::error: NewRequest:", err)
-		a.mutexToOrders.Lock()
-		a.ordersToProcess = append(a.ordersToProcess, orderNumber)
-		a.mutexToOrders.Unlock()
+		a.ordersToProcess <- orderNumber
 		return
 	}
 	request.Header.Set("Content-Type", "text/html")
 	response, err := client.Do(request)
 	if err != nil {
 		log.Println("accrual::getAccrual::error: Do:", err)
-		a.addToOrders(orderNumber)
+		a.ordersToProcess <- orderNumber
 		return
 	}
 	switch response.StatusCode {
@@ -121,24 +113,24 @@ func (a *accrualsystem) getAccrual(orderNumber string) {
 		respBody, err := ioutil.ReadAll(response.Body)
 		if err != nil {
 			log.Println("accrual::getAccrual::error: ReadAll:", err)
-			a.addToOrders(orderNumber)
+			a.ordersToProcess <- orderNumber
 			return
 		}
-		var res order.InterfaceForAccrualSystem
-		err = json.Unmarshal(respBody, &res)
+		var resultOrderInterface order.InterfaceForAccrualSystem
+		err = json.Unmarshal(respBody, &resultOrderInterface)
 		if err != nil {
 			log.Println("accrual::getAccrual::error: Unmarshal:", err)
-			a.addToOrders(orderNumber)
+			a.ordersToProcess <- orderNumber
 			return
 		}
-		resAsOrder := order.Order{
-			Number: res.Number,
-			Status: res.Status,
+		resultAsOrder := order.Order{
+			Number: resultOrderInterface.Number,
+			Status: resultOrderInterface.Status,
 		}
-		if res.Status == order.ProcessingTypeProcessed {
-			resAsOrder.Accrual = int64(res.Accrual * 100)
+		if resultOrderInterface.Status == order.ProcessingTypeProcessed {
+			resultAsOrder.Accrual = int64(resultOrderInterface.Accrual * 100)
 		}
-		a.channelToService <- resAsOrder
+		a.channelToService <- resultAsOrder
 	case http.StatusTooManyRequests:
 		retryAfter := response.Header.Get("Retry-After")
 		n, err := strconv.ParseInt(retryAfter, 10, 64)
@@ -147,17 +139,17 @@ func (a *accrualsystem) getAccrual(orderNumber string) {
 			return
 		}
 		time.Sleep(time.Duration(n) * time.Second)
-		a.addToOrders(orderNumber)
+		a.ordersToProcess <- orderNumber
 	default:
 		log.Println("accrual::getAccrual::info: default")
 		defer response.Body.Close()
 		respBody, err := ioutil.ReadAll(response.Body)
 		if err != nil {
 			log.Println("accrual::getAccrual::error: ReadAll:", err)
-			a.addToOrders(orderNumber)
+			a.ordersToProcess <- orderNumber
 			return
 		}
 		log.Println("accrual::getAccrual::info:", string(respBody))
-		a.addToOrders(orderNumber)
+		a.ordersToProcess <- orderNumber
 	}
 }
