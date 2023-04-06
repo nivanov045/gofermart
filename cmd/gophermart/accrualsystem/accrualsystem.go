@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -110,7 +110,7 @@ func (a *accrualsystem) getAccrual(orderNumber string) {
 	switch response.StatusCode {
 	case http.StatusOK:
 		defer response.Body.Close()
-		respBody, err := ioutil.ReadAll(response.Body)
+		respBody, err := io.ReadAll(response.Body)
 		if err != nil {
 			log.Println("accrual::getAccrual::error: ReadAll:", err)
 			a.ordersToProcess <- orderNumber
@@ -143,7 +143,7 @@ func (a *accrualsystem) getAccrual(orderNumber string) {
 	default:
 		log.Println("accrual::getAccrual::info: default")
 		defer response.Body.Close()
-		respBody, err := ioutil.ReadAll(response.Body)
+		respBody, err := io.ReadAll(response.Body)
 		if err != nil {
 			log.Println("accrual::getAccrual::error: ReadAll:", err)
 			a.ordersToProcess <- orderNumber
