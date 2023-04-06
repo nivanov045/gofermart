@@ -12,7 +12,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    container: golang:1.17
+    container: golang:1.19
 
     services:
       postgres:
@@ -46,8 +46,8 @@ jobs:
 
       - name: Build binaries
         run: |
-          (cd cmd/gophermart && go build -o gophermart)
-          (cd cmd/accrual && go build -o accrual)
+          (cd cmd/gophermart && go build -buildvcs=false -o gophermart)
+          (cd cmd/accrual && go build -buildvcs=false -o accrual)
 
       - name: Test
         run: |
