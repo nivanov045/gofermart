@@ -1,7 +1,7 @@
 package api
 
 import (
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 
@@ -63,7 +63,7 @@ func (a *api) registerHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 
 	defer r.Body.Close()
-	respBody, err := ioutil.ReadAll(r.Body)
+	respBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::registerHandler::warning: can't read response body with:", err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -96,7 +96,7 @@ func (a *api) loginHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 
 	defer r.Body.Close()
-	respBody, err := ioutil.ReadAll(r.Body)
+	respBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::loginHandler::warning: can't read response body with:", err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -183,7 +183,7 @@ func (a *api) addOrderHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer r.Body.Close()
-	respBody, err := ioutil.ReadAll(r.Body)
+	respBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::addOrderHandler::warning: can't read response body with:", err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -321,7 +321,7 @@ func (a *api) makeWithdrawHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer r.Body.Close()
-	respBody, err := ioutil.ReadAll(r.Body)
+	respBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Println("api::makeWithdrawHandler::warning: can't read response body with:", err)
 		w.WriteHeader(http.StatusBadRequest)
